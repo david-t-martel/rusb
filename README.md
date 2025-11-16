@@ -16,6 +16,8 @@ should happen in `rusb/`.
   (examples, doc, tests, etc.) so maintainers can still run legacy build
   pipelines when needed.
 - `legacy/libusb-c/tests-c/` – relocated C test harnesses.
+- `rusb/USB3_PLAN.md` – living document that tracks the SuperSpeed/USB4 roadmap
+  and required test infrastructure.
 
 ## Runtime Model
 
@@ -75,6 +77,22 @@ cargo test --test windows_equivalence
 The test dynamically loads libusb, enumerates descriptor VID/PID pairs, and
 asserts that `rusb::devices()` yields the identical set.  The test is skipped by
 default so that CI can run on hosts without libusb installed.
+
+For more detailed telemetry (control/bulk/interrupt throughput comparisons and
+runtime debugging hints) use the `windows_compare` harness:
+
+```powershell
+cd rusb
+$env:RUSB_TEST_VID="0403"
+$env:RUSB_TEST_PID="6010"
+$env:RUSB_TEST_BULK_OUT="02"
+$env:RUSB_TEST_BULK_IN="81"
+cargo test --test windows_compare
+```
+
+Only the VID/PID variables are required; endpoint variables opt into the bulk
+and interrupt benchmarks. The harness prints timing tables plus suggested
+Windows diagnostic commands (usbview, PowerShell `Get-PnpDevice`, `pnputil`).
 
 On Unix-like hosts you can follow a similar pattern by editing
 `tests/windows_equivalence.rs` to point at `libusb-1.0.so` or
