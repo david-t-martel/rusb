@@ -25,6 +25,14 @@ fn flash_image(blocks: &[Vec<u8>]) -> Result<(), rusb::Error> {
 All commands are simple wrappers around the DFU class requests, so you can
 extend them with firmware-specific semantics (erase, jump commands, etc.).
 
+Additional helpers:
+
+- `wait_while_busy(timeout)` polls `DFU_GETSTATUS` until the bootloader reports
+  `OK`.
+- `mass_erase()` issues the vendor-specific DFUSE mass erase sequence.
+- `leave_dfu()` wraps `DFU_DETACH` plus a short delay so the MCU can reboot
+  into application code.
+
 ## Virtual COM
 
 `Stm32VirtualCom` is a convenience wrapper around bulk IN/OUT pipes. It does not

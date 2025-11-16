@@ -8,6 +8,8 @@ FT232/FT2232 style bridges. It exposes the most common primitives:
 - Automatic discovery of VID/PID pairs (`0x0403:0x6001`, `0x6010`, `0x6011`, `0x6014`).
 - Control transfers for RESET, baud-rate configuration, line settings, and flow
   control.
+- Latency timer adjustments, RX/TX purge commands, and bit-bang/MPSSE mode
+  configuration.
 - Thin wrappers around the bulk IN/OUT endpoints.
 
 ## Usage

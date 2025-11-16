@@ -6,6 +6,7 @@
 use crate::{
     ControlRequest, ControlTransferData, Device, DeviceHandle, DeviceList, Error, TransferBuffer,
 };
+use std::thread;
 use std::time::Duration;
 
 const ESPRESSIF_VID: u16 = 0x303A;
@@ -122,5 +123,47 @@ impl Esp32SerialBridge {
             TransferBuffer::In(buf),
             Duration::from_millis(500),
         )
+    }
+
+    /// Toggles DTR/RTS to reset the chip and enter the ROM bootloader.
+    pub fn enter_bootloader_sequence(&self) -> Result<(), Error> {
+        // Sequence mirrors esptool.py: assert IO0 low + reset low, release reset, release IO0.
+        self.set_control_lines(false, true)?; // EN low, IO0 high
+        thread::sleep(Duration::from_millis(50));
+        self.set_control_lines(true, true)?; // EN high, still requesting boot mode
+        thread::sleep(Duration::from_millis(50));
+        self.set_control_lines(true, false)?; // release IO0
+        thread::sleep(Duration::from_millis(50));
+        self.set_control_lines(false, false)?;
+        Ok(())
+    }
+
+    /// Sends a SLIP-encoded frame (see esptool protocol) over the CDC channel.
+    pub fn send_slip_frame(&self, payload: &[u8]) -> Result<usize, Error> {
+        const END: u8 = 0xC0;
+        const ESC: u8 = 0xDB;
+        const ESC_END: u8 = 0xDC;
+        const ESC_ESC: u8 = 0xDD;
+
+        let mut frame = Vec::with_capacity(payload.len() + 2);
+        frame.push(END);
+        for &b in payload {
+            match b {
+                END => frame.extend_from_slice(&[ESC, ESC_END]),
+                ESC => frame.extend_from_slice(&[ESC, ESC_ESC]),
+                _ => frame.push(b),
+            }
+        }
+        frame.push(END);
+        self.write(&frame)
+    }
+
+    /// Minimal flash helper: wraps address + payload into a SLIP frame.
+    pub fn write_flash_block(&self, address: u32, data: &[u8]) -> Result<(), Error> {
+        let mut payload = Vec::with_capacity(8 + data.len());
+        payload.extend_from_slice(&address.to_le_bytes());
+        payload.extend_from_slice(&(data.len() as u32).to_le_bytes());
+        payload.extend_from_slice(data);
+        self.send_slip_frame(&payload).map(|_| ())
     }
 }

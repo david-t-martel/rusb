@@ -5,7 +5,8 @@
 use crate::{
     ControlRequest, ControlTransferData, Device, DeviceHandle, DeviceList, Error, TransferBuffer,
 };
-use std::time::Duration;
+use std::thread;
+use std::time::{Duration, Instant};
 
 const STM32_VID: u16 = 0x0483; // STMicroelectronics
 const DFU_PID: u16 = 0xDF11;
@@ -105,6 +106,37 @@ impl Stm32DfuDevice {
                 Duration::from_millis(100),
             )
             .map(|_| ())
+    }
+
+    /// Waits until the device reports it is ready or a timeout occurs.
+    pub fn wait_while_busy(&self, timeout: Duration) -> Result<(), Error> {
+        let start = Instant::now();
+        let mut buf = [0u8; 6];
+        loop {
+            self.get_status(&mut buf)?;
+            if buf[0] == 0 {
+                return Ok(());
+            }
+            if start.elapsed() > timeout {
+                return Err(Error::Unknown);
+            }
+            let poll_timeout = u32::from_le_bytes([buf[1], buf[2], buf[3], 0]);
+            thread::sleep(Duration::from_millis(poll_timeout as u64));
+        }
+    }
+
+    /// Issues the STM32 DFU mass erase command sequence.
+    pub fn mass_erase(&self) -> Result<(), Error> {
+        // DFU suffix 0x41 0x00 triggers mass erase on STM32 DFUSE bootloaders.
+        self.download_block(0, &[0x41, 0x00])?;
+        self.wait_while_busy(Duration::from_secs(5))
+    }
+
+    /// Convenience wrapper for detach + small delay.
+    pub fn leave_dfu(&self) -> Result<(), Error> {
+        self.detach(1000)?;
+        thread::sleep(Duration::from_millis(1200));
+        Ok(())
     }
 }
 

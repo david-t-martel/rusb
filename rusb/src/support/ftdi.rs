@@ -14,6 +14,10 @@ const FTDI_SIO_SET_BAUDRATE_REQUEST: u8 = 3;
 const FTDI_SIO_SET_DATA_REQUEST: u8 = 4;
 const FTDI_SIO_SET_FLOW_CTRL_REQUEST: u8 = 2;
 const FTDI_SIO_RESET_REQUEST: u8 = 0;
+const FTDI_SIO_RESET_PURGE_RX: u16 = 1;
+const FTDI_SIO_RESET_PURGE_TX: u16 = 2;
+const FTDI_SIO_SET_LATENCY_TIMER_REQUEST: u8 = 9;
+const FTDI_SIO_SET_BITMODE_REQUEST: u8 = 0x0B;
 const USB_WRITE_REQUEST: u8 = 0x40;
 
 /// Simple wrapper that owns the rusb handle plus endpoint metadata.
@@ -22,6 +26,28 @@ pub struct FtdiDevice {
     in_ep: u8,
     out_ep: u8,
     interface: u8,
+}
+
+/// Bit-bang operating modes supported by FTDI chips.
+#[derive(Debug, Clone, Copy)]
+pub enum BitMode {
+    Reset = 0x00,
+    BitBang = 0x01,
+    Mpsse = 0x02,
+    SyncBitBang = 0x04,
+    MCUHost = 0x08,
+    FastOpto = 0x10,
+    CBusBitBang = 0x20,
+    SyncFifo = 0x40,
+}
+
+/// Hardware/software flow control options.
+#[derive(Debug, Clone, Copy)]
+pub enum FlowControl {
+    None,
+    RtsCts,
+    DtrDsr,
+    XonXoff,
 }
 
 impl FtdiDevice {
@@ -115,8 +141,14 @@ impl FtdiDevice {
             .map(|_| ())
     }
 
-    /// Enables/disables RTS/CTS or DTR/DSR flow control.
-    pub fn set_flow_control(&self, mask: u16, value: u16) -> Result<(), Error> {
+    /// Enables/disables hardware/software flow control.
+    pub fn set_flow_control(&self, mode: FlowControl) -> Result<(), Error> {
+        let (mask, value) = match mode {
+            FlowControl::None => (0, 0),
+            FlowControl::RtsCts => (0, 0x0100),
+            FlowControl::DtrDsr => (0, 0x0200),
+            FlowControl::XonXoff => (0x1311, 0),
+        };
         let request = ControlRequest {
             request_type: USB_WRITE_REQUEST,
             request: FTDI_SIO_SET_FLOW_CTRL_REQUEST,
@@ -130,6 +162,51 @@ impl FtdiDevice {
                 Duration::from_millis(100),
             )
             .map(|_| ())
+    }
+
+    /// Adjusts the latency timer (1-255 ms). Lower values reduce buffering.
+    pub fn set_latency_timer(&self, timer_ms: u8) -> Result<(), Error> {
+        let value = timer_ms.max(1);
+        let request = ControlRequest {
+            request_type: USB_WRITE_REQUEST,
+            request: FTDI_SIO_SET_LATENCY_TIMER_REQUEST,
+            value: value as u16,
+            index: self.interface as u16,
+        };
+        self.handle
+            .control_transfer(
+                request,
+                ControlTransferData::None,
+                Duration::from_millis(100),
+            )
+            .map(|_| ())
+    }
+
+    /// Configures bit-bang mode for GPIO or MPSSE use cases.
+    pub fn set_bit_mode(&self, mask: u8, mode: BitMode) -> Result<(), Error> {
+        let request = ControlRequest {
+            request_type: USB_WRITE_REQUEST,
+            request: FTDI_SIO_SET_BITMODE_REQUEST,
+            value: ((mode as u16) << 8) | mask as u16,
+            index: self.interface as u16,
+        };
+        self.handle
+            .control_transfer(
+                request,
+                ControlTransferData::None,
+                Duration::from_millis(100),
+            )
+            .map(|_| ())
+    }
+
+    /// Clears the RX FIFO.
+    pub fn purge_rx(&self) -> Result<(), Error> {
+        self.reset_pipe(FTDI_SIO_RESET_PURGE_RX)
+    }
+
+    /// Clears the TX FIFO.
+    pub fn purge_tx(&self) -> Result<(), Error> {
+        self.reset_pipe(FTDI_SIO_RESET_PURGE_TX)
     }
 
     /// Writes data to the OUT endpoint.
@@ -148,6 +225,22 @@ impl FtdiDevice {
             TransferBuffer::In(data),
             Duration::from_millis(500),
         )
+    }
+
+    fn reset_pipe(&self, pipe: u16) -> Result<(), Error> {
+        let request = ControlRequest {
+            request_type: USB_WRITE_REQUEST,
+            request: FTDI_SIO_RESET_REQUEST,
+            value: pipe,
+            index: self.interface as u16,
+        };
+        self.handle
+            .control_transfer(
+                request,
+                ControlTransferData::None,
+                Duration::from_millis(100),
+            )
+            .map(|_| ())
     }
 }
 

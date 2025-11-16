@@ -24,6 +24,10 @@ fn main() -> Result<(), rusb::Error> {
 The helper also exposes `set_control_lines` to toggle DTR/RTS—for example to
 enter the ESP32 bootloader.
 
+See `cargo run --example esp32_s3_flash <firmware.bin>` for a complete proof of
+concept flasher. It reads a binary file, toggles the boot pins, and streams the
+image using SLIP frames via the helper APIs.
+
 ## Notes
 
 - Many ESP32 boards still rely on external CP210x/FTDI bridges; use the FTDI
