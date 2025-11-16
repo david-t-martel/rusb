@@ -20,6 +20,9 @@ should happen in `rusb/`.
   and required test infrastructure.
 - `docs/FTDI.md`, `docs/STM32.md`, `docs/ESP32.md` – describe the optional
   support modules that sit on top of `rusb` for common embedded chipsets.
+- `docs/logger.md` – shows how to attach the logging shim.
+- `embedded/` – sample Cargo workspace with a dummy firmware crate and a host
+  utility that uses `rusb` support helpers.
 
 ## Runtime Model
 
@@ -114,6 +117,8 @@ The crate ships with embeddable helpers under `rusb::support`:
   CDC helpers for STM32 boards (`docs/STM32.md`).
 - `rusb::support::esp32::Esp32SerialBridge` – native ESP32-C3/S3 USB CDC helper
   (`docs/ESP32.md`).
+- `rusb::support::logger::ChannelLogger` – timestamped TX/RX logging for any
+  bulk-based serial channel (`docs/logger.md`).
 
 These modules intentionally avoid external dependencies and only use the public
 `rusb` API so they can be copied or extended downstream.

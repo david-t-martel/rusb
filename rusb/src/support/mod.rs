@@ -5,8 +5,10 @@
 
 pub mod esp32;
 pub mod ftdi;
+pub mod logger;
 pub mod stm32;
 
 pub use esp32::Esp32SerialBridge;
 pub use ftdi::FtdiDevice;
+pub use logger::ChannelLogger;
 pub use stm32::{Stm32DfuDevice, Stm32VirtualCom};

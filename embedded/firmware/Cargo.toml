@@ -1,0 +1,16 @@
+[package]
+name = "firmware"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["staticlib"]
+
+[dependencies]
+cortex-m = "0.7"
+cortex-m-rt = { version = "0.7", optional = true }
+panic-halt = { version = "0.2", optional = true }
+
+[features]
+default = []
+stm32 = ["cortex-m-rt", "panic-halt"]
