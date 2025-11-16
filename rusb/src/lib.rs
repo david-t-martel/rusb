@@ -3,6 +3,7 @@
 mod platform;
 
 use std::fmt;
+use std::time::Duration;
 
 /// A list of USB devices.
 pub struct DeviceList {
@@ -23,8 +24,15 @@ pub struct Device {
 
 impl Device {
     /// Opens the device.
+    #[cfg(not(all(target_arch = "wasm32", feature = "webusb")))]
     pub fn open(&self) -> Result<DeviceHandle, Error> {
         platform::open(self)
+    }
+
+    /// Opens the device (WebUSB builds use async semantics).
+    #[cfg(all(target_arch = "wasm32", feature = "webusb"))]
+    pub async fn open(&self) -> Result<DeviceHandle, Error> {
+        platform::open(self).await
     }
 
     /// Returns the device descriptor.
@@ -39,20 +47,146 @@ pub struct DeviceHandle {
 }
 
 impl DeviceHandle {
-    /// Performs a control transfer.
-    pub fn control_transfer(&self) -> Result<(), Error> {
-        platform::control_transfer()
+    /// Performs a USB control transfer using the provided setup packet,
+    /// payload buffer, and timeout.
+    #[cfg(not(all(target_arch = "wasm32", feature = "webusb")))]
+    pub fn control_transfer<'a>(
+        &self,
+        request: ControlRequest,
+        data: ControlTransferData<'a>,
+        timeout: Duration,
+    ) -> Result<usize, Error> {
+        platform::control_transfer(self, request, data, timeout)
     }
 
-    /// Performs a bulk transfer.
-    pub fn bulk_transfer(&self) -> Result<(), Error> {
-        platform::bulk_transfer()
+    /// Performs a USB bulk transfer on the given endpoint.
+    #[cfg(not(all(target_arch = "wasm32", feature = "webusb")))]
+    pub fn bulk_transfer<'a>(
+        &self,
+        endpoint: u8,
+        buffer: TransferBuffer<'a>,
+        timeout: Duration,
+    ) -> Result<usize, Error> {
+        platform::bulk_transfer(self, endpoint, buffer, timeout)
     }
 
-    /// Performs an interrupt transfer.
-    pub fn interrupt_transfer(&self) -> Result<(), Error> {
-        platform::interrupt_transfer()
+    /// Performs a USB interrupt transfer on the given endpoint.
+    #[cfg(not(all(target_arch = "wasm32", feature = "webusb")))]
+    pub fn interrupt_transfer<'a>(
+        &self,
+        endpoint: u8,
+        buffer: TransferBuffer<'a>,
+        timeout: Duration,
+    ) -> Result<usize, Error> {
+        platform::interrupt_transfer(self, endpoint, buffer, timeout)
     }
+
+    /// Performs a USB control transfer (async variant for WebUSB builds).
+    #[cfg(all(target_arch = "wasm32", feature = "webusb"))]
+    pub async fn control_transfer<'a>(
+        &self,
+        request: ControlRequest,
+        data: ControlTransferData<'a>,
+        timeout: Duration,
+    ) -> Result<usize, Error> {
+        platform::control_transfer(self, request, data, timeout).await
+    }
+
+    /// Performs a USB bulk transfer on the given endpoint (WebUSB builds).
+    #[cfg(all(target_arch = "wasm32", feature = "webusb"))]
+    pub async fn bulk_transfer<'a>(
+        &self,
+        endpoint: u8,
+        buffer: TransferBuffer<'a>,
+        timeout: Duration,
+    ) -> Result<usize, Error> {
+        platform::bulk_transfer(self, endpoint, buffer, timeout).await
+    }
+
+    /// Performs a USB interrupt transfer on the given endpoint (WebUSB builds).
+    #[cfg(all(target_arch = "wasm32", feature = "webusb"))]
+    pub async fn interrupt_transfer<'a>(
+        &self,
+        endpoint: u8,
+        buffer: TransferBuffer<'a>,
+        timeout: Duration,
+    ) -> Result<usize, Error> {
+        platform::interrupt_transfer(self, endpoint, buffer, timeout).await
+    }
+}
+
+#[cfg(target_os = "linux")]
+impl DeviceHandle {
+    /// Returns the underlying usbfs file descriptor on Linux.
+    pub fn as_raw_fd(&self) -> std::os::unix::io::RawFd {
+        self.inner.as_raw_fd()
+    }
+}
+
+/// Setup packet metadata for a USB control transfer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ControlRequest {
+    pub request_type: u8,
+    pub request: u8,
+    pub value: u16,
+    pub index: u16,
+}
+
+/// Data payload for a control transfer.
+pub enum ControlTransferData<'a> {
+    /// No payload stage.
+    None,
+    /// IN transfer (device-to-host) with mutable buffer to fill.
+    In(&'a mut [u8]),
+    /// OUT transfer (host-to-device) with read-only payload.
+    Out(&'a [u8]),
+}
+
+impl<'a> ControlTransferData<'a> {
+    pub(crate) fn len(&self) -> usize {
+        match self {
+            ControlTransferData::None => 0,
+            ControlTransferData::In(buf) => buf.len(),
+            ControlTransferData::Out(buf) => buf.len(),
+        }
+    }
+
+    pub(crate) fn direction(&self) -> Option<TransferDirection> {
+        match self {
+            ControlTransferData::None => None,
+            ControlTransferData::In(_) => Some(TransferDirection::In),
+            ControlTransferData::Out(_) => Some(TransferDirection::Out),
+        }
+    }
+}
+
+/// Buffer wrapper for bulk and interrupt transfers.
+pub enum TransferBuffer<'a> {
+    In(&'a mut [u8]),
+    Out(&'a [u8]),
+}
+
+impl<'a> TransferBuffer<'a> {
+    pub(crate) fn len(&self) -> usize {
+        match self {
+            TransferBuffer::In(buf) => buf.len(),
+            TransferBuffer::Out(buf) => buf.len(),
+        }
+    }
+
+    pub(crate) fn direction(&self) -> TransferDirection {
+        match self {
+            TransferBuffer::In(_) => TransferDirection::In,
+            TransferBuffer::Out(_) => TransferDirection::Out,
+        }
+    }
+}
+
+/// Logical direction of a USB transfer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TransferDirection {
+    In,
+    Out,
 }
 
 /// An error from the USB library.
@@ -78,6 +212,13 @@ impl fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
+impl From<std::io::Error> for Error {
+    fn from(err: std::io::Error) -> Self {
+        Error::Os(err.raw_os_error().unwrap_or(-1))
+    }
+}
+
+#[cfg(target_os = "windows")]
 impl From<windows::core::Error> for Error {
     fn from(err: windows::core::Error) -> Self {
         Error::Os(err.code().0)
@@ -105,6 +246,13 @@ pub struct DeviceDescriptor {
 }
 
 /// Returns a list of all USB devices.
+#[cfg(not(all(target_arch = "wasm32", feature = "webusb")))]
 pub fn devices() -> Result<DeviceList, Error> {
     platform::devices()
+}
+
+/// Returns a list of all USB devices. (WebUSB builds)
+#[cfg(all(target_arch = "wasm32", feature = "webusb"))]
+pub async fn devices() -> Result<DeviceList, Error> {
+    platform::devices().await
 }

@@ -1,115 +1,346 @@
 #![cfg(target_os = "linux")]
 
-//! Linux-specific USB backend implementation.
+//! Linux-specific USB backend implementation built directly on top of sysfs
+//! metadata and the usbfs device nodes. This avoids any dependency on the C
+//! libusb shim or libudev by interrogating the kernel's exported files
+//! directly.
 
-use crate::{Device, DeviceDescriptor, DeviceList, Error};
-use libudev::{Context, Enumerator};
-use std::fs::File;
-use std::os::unix::io::AsRawFd;
+use crate::{
+    ControlRequest, ControlTransferData, Device, DeviceDescriptor, DeviceHandle, DeviceList, Error,
+    TransferBuffer, TransferDirection,
+};
+use libc::{self, c_ulong};
+use std::ffi::c_void;
+use std::fs::{self, File, OpenOptions};
+use std::io::{self, ErrorKind};
+use std::mem::size_of;
+use std::os::unix::io::{AsRawFd, RawFd};
+use std::path::{Path, PathBuf};
+use std::ptr;
+use std::time::Duration;
 
-/// The linux-specific device structure.
+const SYSFS_USB_DEVICES: &str = "/sys/bus/usb/devices";
+
+/// Linux representation of a USB device discovered in sysfs.
 pub struct LinuxDevice {
-    device: libudev::Device,
+    sysfs_path: PathBuf,
+    bus_number: u16,
+    device_address: u16,
 }
 
-/// The linux-specific device handle.
+/// Handle that keeps the corresponding usbfs file descriptor alive.
 pub struct LinuxDeviceHandle {
-    _fd: i32,
+    file: File,
 }
 
-impl LinuxDevice {
-    fn from_udev(device: libudev::Device) -> Self {
-        Self { device }
+impl LinuxDeviceHandle {
+    pub(crate) fn as_raw_fd(&self) -> RawFd {
+        self.file.as_raw_fd()
     }
 }
 
+#[repr(C)]
+struct UsbfsCtrlTransfer {
+    request_type: u8,
+    request: u8,
+    value: u16,
+    index: u16,
+    length: u16,
+    timeout: u32,
+    data: *mut c_void,
+}
+
+#[repr(C)]
+struct UsbfsBulkTransfer {
+    ep: u32,
+    len: u32,
+    timeout: u32,
+    data: *mut c_void,
+}
+
+const IOC_NRBITS: u8 = 8;
+const IOC_TYPEBITS: u8 = 8;
+const IOC_SIZEBITS: u8 = 14;
+
+const IOC_WRITE: u8 = 1;
+const IOC_READ: u8 = 2;
+
+const IOC_NRSHIFT: u8 = 0;
+const IOC_TYPESHIFT: u8 = IOC_NRSHIFT + IOC_NRBITS;
+const IOC_SIZESHIFT: u8 = IOC_TYPESHIFT + IOC_TYPEBITS;
+const IOC_DIRSHIFT: u8 = IOC_SIZESHIFT + IOC_SIZEBITS;
+
+const fn ioc(dir: u8, ty: u8, nr: u8, size: usize) -> c_ulong {
+    ((dir as c_ulong) << IOC_DIRSHIFT)
+        | ((ty as c_ulong) << IOC_TYPESHIFT)
+        | ((nr as c_ulong) << IOC_NRSHIFT)
+        | ((size as c_ulong) << IOC_SIZESHIFT)
+}
+
+const fn iorw(ty: u8, nr: u8, size: usize) -> c_ulong {
+    ioc(IOC_READ | IOC_WRITE, ty, nr, size)
+}
+
+const USBDEVFS_CONTROL: c_ulong = iorw(b'U', 0, size_of::<UsbfsCtrlTransfer>());
+const USBDEVFS_BULK: c_ulong = iorw(b'U', 2, size_of::<UsbfsBulkTransfer>());
+
 pub fn devices() -> Result<DeviceList, Error> {
-    let context = Context::new().map_err(|e| Error::Os(e.raw_os_error().unwrap_or(0)))?;
-    let mut enumerator = Enumerator::new(&context).map_err(|e| Error::Os(e.raw_os_error().unwrap_or(0)))?;
+    let mut devices = Vec::new();
+    for entry in fs::read_dir(SYSFS_USB_DEVICES)? {
+        let entry = entry?;
+        let path = entry.path();
 
-    enumerator
-        .add_match_subsystem("usb")
-        .map_err(|e| Error::Os(e.raw_os_error().unwrap_or(0)))?;
+        // Interfaces lack devnum/busnum, so skip them.
+        if !path.join("devnum").exists() || !path.join("busnum").exists() {
+            continue;
+        }
 
-    let devices = enumerator
-        .scan_devices()
-        .map_err(|e| Error::Os(e.raw_os_error().unwrap_or(0)))?
-        .map(LinuxDevice::from_udev)
-        .map(|ld| Device { inner: ld })
-        .collect::<Vec<Device>>();
+        let bus_number = read_u16_auto(&path, "busnum")?;
+        let device_address = read_u16_auto(&path, "devnum")?;
+
+        devices.push(Device {
+            inner: LinuxDevice {
+                sysfs_path: path,
+                bus_number,
+                device_address,
+            },
+        });
+    }
 
     Ok(DeviceList { devices })
 }
 
 pub fn open(device: &Device) -> Result<crate::DeviceHandle, Error> {
-    let devnum = device.inner.device.devnum();
-    let busnum = device.inner.device.busnum();
-    let path = format!("/dev/bus/usb/{:03}/{:03}", busnum, devnum);
+    let node_path = format!(
+        "/dev/bus/usb/{:03}/{:03}",
+        device.inner.bus_number, device.inner.device_address
+    );
 
-    let file = File::open(path).map_err(|e| Error::Os(e.raw_os_error().unwrap_or(0)))?;
+    // Most systems allow read/write, but fall back to read-only for users
+    // without CAP_SYS_RAWIO.
+    let file = match OpenOptions::new().read(true).write(true).open(&node_path) {
+        Ok(file) => file,
+        Err(err) if err.kind() == ErrorKind::PermissionDenied => {
+            OpenOptions::new().read(true).open(&node_path)?
+        }
+        Err(err) => return Err(err.into()),
+    };
 
     Ok(crate::DeviceHandle {
-        inner: LinuxDeviceHandle {
-            _fd: file.as_raw_fd(),
-        },
+        inner: LinuxDeviceHandle { file },
     })
 }
 
 pub fn get_device_descriptor(device: &Device) -> Result<DeviceDescriptor, Error> {
-    let dev = &device.inner.device;
-
-    let vid = get_sysattr_as::<u16>(dev, "idVendor")?;
-    let pid = get_sysattr_as::<u16>(dev, "idProduct")?;
-    let device_class = get_sysattr_as::<u8>(dev, "bDeviceClass")?;
-    let device_subclass = get_sysattr_as::<u8>(dev, "bDeviceSubClass")?;
-    let device_protocol = get_sysattr_as::<u8>(dev, "bDeviceProtocol")?;
-    let num_configurations = get_sysattr_as::<u8>(dev, "bNumConfigurations")?;
-    let usb_version = get_sysattr_as::<u16>(dev, "bcdUSB")?;
-    let device_version = get_sysattr_as::<u16>(dev, "bcdDevice")?;
-    let max_packet_size_0 = get_sysattr_as::<u8>(dev, "bMaxPacketSize0")?;
-
-    // These are string indexes, not the strings themselves.
-    let manufacturer_string_index = get_sysattr_as::<u8>(dev, "iManufacturer").unwrap_or(0);
-    let product_string_index = get_sysattr_as::<u8>(dev, "iProduct").unwrap_or(0);
-    let serial_number_string_index = get_sysattr_as::<u8>(dev, "iSerialNumber").unwrap_or(0);
+    let path = &device.inner.sysfs_path;
 
     Ok(DeviceDescriptor {
-        length: 18, // bLength, always 18 for device descriptor
-        descriptor_type: 0x01, // bDescriptorType, DEVICE
-        usb_version,
-        device_class,
-        device_subclass,
-        device_protocol,
-        max_packet_size_0,
-        vendor_id: vid,
-        product_id: pid,
-        device_version,
-        manufacturer_string_index,
-        product_string_index,
-        serial_number_string_index,
-        num_configurations,
+        length: 18,
+        descriptor_type: 0x01,
+        usb_version: read_u16_auto(path, "bcdUSB")?,
+        device_class: read_u8_auto(path, "bDeviceClass")?,
+        device_subclass: read_u8_auto(path, "bDeviceSubClass")?,
+        device_protocol: read_u8_auto(path, "bDeviceProtocol")?,
+        max_packet_size_0: read_u8_auto(path, "bMaxPacketSize0")?,
+        vendor_id: read_u16_auto(path, "idVendor")?,
+        product_id: read_u16_auto(path, "idProduct")?,
+        device_version: read_u16_auto(path, "bcdDevice")?,
+        manufacturer_string_index: read_u8_auto_optional(path, "iManufacturer")?,
+        product_string_index: read_u8_auto_optional(path, "iProduct")?,
+        serial_number_string_index: read_u8_auto_optional(path, "iSerialNumber")?,
+        num_configurations: read_u8_auto(path, "bNumConfigurations")?,
     })
 }
 
-// Helper function to read and parse a sysattr value from udev.
-fn get_sysattr_as<T: std::str::FromStr>(device: &libudev::Device, attr: &str) -> Result<T, Error> {
-    let val_str = device
-        .sysattr_value(attr)
-        .ok_or(Error::Os(0))? // Better error needed
-        .to_str()
-        .ok_or(Error::Os(0))?; // Better error needed
-
-    // udev stores hex values as plain strings, so we parse from hex.
-    T::from_str(&val_str).map_err(|_| Error::Os(0)) // Better error needed
+fn read_attr(path: &Path, attr: &str) -> Result<String, Error> {
+    let contents = fs::read_to_string(path.join(attr))?;
+    Ok(contents.trim().to_string())
 }
 
-// Transfer functions to be implemented later.
-pub fn control_transfer() -> Result<(), Error> {
-    Ok(())
+fn read_attr_optional(path: &Path, attr: &str) -> Result<Option<String>, Error> {
+    match fs::read_to_string(path.join(attr)) {
+        Ok(contents) => Ok(Some(contents.trim().to_string())),
+        Err(err) if err.kind() == ErrorKind::NotFound => Ok(None),
+        Err(err) => Err(err.into()),
+    }
 }
-pub fn bulk_transfer() -> Result<(), Error> {
-    Ok(())
+
+fn read_u8_auto(path: &Path, attr: &str) -> Result<u8, Error> {
+    let value = read_attr(path, attr)?;
+    parse_u8_auto(&value)
 }
-pub fn interrupt_transfer() -> Result<(), Error> {
-    Ok(())
+
+fn read_u8_auto_optional(path: &Path, attr: &str) -> Result<u8, Error> {
+    match read_attr_optional(path, attr)? {
+        Some(value) => parse_u8_auto(&value),
+        None => Ok(0),
+    }
+}
+
+fn read_u16_auto(path: &Path, attr: &str) -> Result<u16, Error> {
+    let value = read_attr(path, attr)?;
+    parse_u16_auto(&value)
+}
+
+fn parse_u8_auto(value: &str) -> Result<u8, Error> {
+    parse_numeric_auto(value, u8::from_str_radix)
+}
+
+fn parse_u16_auto(value: &str) -> Result<u16, Error> {
+    parse_numeric_auto(value, u16::from_str_radix)
+}
+
+fn parse_numeric_auto<T>(
+    value: &str,
+    parser: fn(&str, u32) -> Result<T, std::num::ParseIntError>,
+) -> Result<T, Error> {
+    let trimmed = value.trim();
+    if let Ok(val) = parser(trimmed, 10) {
+        return Ok(val);
+    }
+
+    let without_prefix = trimmed
+        .strip_prefix("0x")
+        .or_else(|| trimmed.strip_prefix("0X"))
+        .unwrap_or(trimmed);
+    parser(without_prefix, 16).map_err(|_| Error::Unknown)
+}
+
+pub fn control_transfer(
+    handle: &DeviceHandle,
+    request: ControlRequest,
+    data: ControlTransferData<'_>,
+    timeout: Duration,
+) -> Result<usize, Error> {
+    if let Some(direction) = data.direction() {
+        let setup_direction = if request.request_type & 0x80 != 0 {
+            TransferDirection::In
+        } else {
+            TransferDirection::Out
+        };
+
+        if direction != setup_direction {
+            return Err(invalid_argument());
+        }
+    }
+    let length = usize_to_u16(data.len())?;
+    let data_ptr = match data {
+        ControlTransferData::None => ptr::null_mut(),
+        ControlTransferData::In(buffer) => buffer.as_mut_ptr() as *mut c_void,
+        ControlTransferData::Out(buffer) => buffer.as_ptr() as *mut c_void,
+    };
+    let mut transfer = UsbfsCtrlTransfer {
+        request_type: request.request_type,
+        request: request.request,
+        value: request.value,
+        index: request.index,
+        length,
+        timeout: duration_to_timeout(timeout),
+        data: data_ptr,
+    };
+
+    let result = unsafe { libc::ioctl(handle.as_raw_fd(), USBDEVFS_CONTROL, &mut transfer) };
+    if result < 0 {
+        Err(Error::from(io::Error::last_os_error()))
+    } else {
+        Ok(result as usize)
+    }
+}
+
+pub fn bulk_transfer(
+    handle: &DeviceHandle,
+    endpoint: u8,
+    buffer: TransferBuffer<'_>,
+    timeout: Duration,
+) -> Result<usize, Error> {
+    usbfs_data_transfer(handle, endpoint, buffer, timeout)
+}
+
+pub fn interrupt_transfer(
+    handle: &DeviceHandle,
+    endpoint: u8,
+    buffer: TransferBuffer<'_>,
+    timeout: Duration,
+) -> Result<usize, Error> {
+    usbfs_data_transfer(handle, endpoint, buffer, timeout)
+}
+
+fn usbfs_data_transfer(
+    handle: &DeviceHandle,
+    endpoint: u8,
+    buffer: TransferBuffer<'_>,
+    timeout: Duration,
+) -> Result<usize, Error> {
+    let endpoint_direction = if endpoint & 0x80 != 0 {
+        TransferDirection::In
+    } else {
+        TransferDirection::Out
+    };
+
+    if buffer.direction() != endpoint_direction {
+        return Err(invalid_argument());
+    }
+    let len = usize_to_u32(buffer.len())?;
+    let data_ptr = match buffer {
+        TransferBuffer::In(buffer) => buffer.as_mut_ptr() as *mut c_void,
+        TransferBuffer::Out(buffer) => buffer.as_ptr() as *mut c_void,
+    };
+    let mut transfer = UsbfsBulkTransfer {
+        ep: endpoint as u32,
+        len,
+        timeout: duration_to_timeout(timeout),
+        data: data_ptr,
+    };
+
+    let result = unsafe { libc::ioctl(handle.as_raw_fd(), USBDEVFS_BULK, &mut transfer) };
+    if result < 0 {
+        Err(Error::from(io::Error::last_os_error()))
+    } else {
+        Ok(result as usize)
+    }
+}
+
+fn duration_to_timeout(timeout: Duration) -> u32 {
+    if timeout.is_zero() {
+        0
+    } else {
+        timeout.as_millis().min(u32::MAX as u128) as u32
+    }
+}
+
+fn usize_to_u16(value: usize) -> Result<u16, Error> {
+    if value > u16::MAX as usize {
+        Err(invalid_argument())
+    } else {
+        Ok(value as u16)
+    }
+}
+
+fn usize_to_u32(value: usize) -> Result<u32, Error> {
+    if value > u32::MAX as usize {
+        Err(invalid_argument())
+    } else {
+        Ok(value as u32)
+    }
+}
+
+fn invalid_argument() -> Error {
+    Error::from(io::Error::from_raw_os_error(libc::EINVAL))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{parse_u8_auto, parse_u16_auto};
+
+    #[test]
+    fn parses_decimal_values() {
+        assert_eq!(parse_u8_auto("10").unwrap(), 10);
+        assert_eq!(parse_u16_auto("255").unwrap(), 255);
+    }
+
+    #[test]
+    fn parses_hex_values_with_and_without_prefix() {
+        assert_eq!(parse_u8_auto("0x0A").unwrap(), 10);
+        assert_eq!(parse_u16_auto("1d6b").unwrap(), 0x1d6b);
+    }
 }

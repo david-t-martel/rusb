@@ -84,5 +84,8 @@ xcuserdata
 *.xcscmblueprint
 *.xcworkspace
 build/
+rusb/target/
+target/
+!legacy/libusb-c/**
 tags
 cscope.out
