@@ -1,6 +1,7 @@
 //! A Rust wrapper for libusb.
 
 mod platform;
+pub mod support;
 
 use std::fmt;
 use std::time::Duration;

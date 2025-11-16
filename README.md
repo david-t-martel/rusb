@@ -18,6 +18,8 @@ should happen in `rusb/`.
 - `legacy/libusb-c/tests-c/` – relocated C test harnesses.
 - `rusb/USB3_PLAN.md` – living document that tracks the SuperSpeed/USB4 roadmap
   and required test infrastructure.
+- `docs/FTDI.md`, `docs/STM32.md`, `docs/ESP32.md` – describe the optional
+  support modules that sit on top of `rusb` for common embedded chipsets.
 
 ## Runtime Model
 
@@ -101,6 +103,20 @@ straightforward.
 
 Refer to `rusb/TESTING.md` for the complete parity matrix and additional
 instructions on extending the coverage.
+
+## Optional Support Modules
+
+The crate ships with embeddable helpers under `rusb::support`:
+
+- `rusb::support::ftdi::FtdiDevice` – wraps common FTDI requests; see
+  `docs/FTDI.md` for details.
+- `rusb::support::stm32::{Stm32DfuDevice, Stm32VirtualCom}` – minimal DFU and
+  CDC helpers for STM32 boards (`docs/STM32.md`).
+- `rusb::support::esp32::Esp32SerialBridge` – native ESP32-C3/S3 USB CDC helper
+  (`docs/ESP32.md`).
+
+These modules intentionally avoid external dependencies and only use the public
+`rusb` API so they can be copied or extended downstream.
 
 ## Legacy C build
 
