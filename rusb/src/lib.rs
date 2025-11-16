@@ -256,3 +256,9 @@ pub fn devices() -> Result<DeviceList, Error> {
 pub async fn devices() -> Result<DeviceList, Error> {
     platform::devices().await
 }
+
+/// Initializes the WebUSB thread pool when `webusb-threads` is enabled.
+#[cfg(all(target_arch = "wasm32", feature = "webusb-threads"))]
+pub async fn init_webusb_threads(workers: Option<usize>) -> Result<(), Error> {
+    platform::init_thread_pool(workers).await
+}

@@ -10,6 +10,7 @@ use crate::{
     TransferBuffer, TransferDirection,
 };
 use libc::{self, c_ulong};
+use std::cmp;
 use std::ffi::c_void;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, ErrorKind};
@@ -31,11 +32,20 @@ pub struct LinuxDevice {
 /// Handle that keeps the corresponding usbfs file descriptor alive.
 pub struct LinuxDeviceHandle {
     file: File,
+    caps: u32,
 }
 
 impl LinuxDeviceHandle {
     pub(crate) fn as_raw_fd(&self) -> RawFd {
         self.file.as_raw_fd()
+    }
+
+    fn max_bulk_chunk(&self) -> usize {
+        if self.caps & USBFS_CAP_NO_PACKET_SIZE_LIM != 0 {
+            cmp::min(u32::MAX as usize, usize::MAX)
+        } else {
+            MAX_BULK_BUFFER_LENGTH
+        }
     }
 }
 
@@ -77,12 +87,19 @@ const fn ioc(dir: u8, ty: u8, nr: u8, size: usize) -> c_ulong {
         | ((size as c_ulong) << IOC_SIZESHIFT)
 }
 
+const fn ior(ty: u8, nr: u8, size: usize) -> c_ulong {
+    ioc(IOC_READ, ty, nr, size)
+}
+
 const fn iorw(ty: u8, nr: u8, size: usize) -> c_ulong {
     ioc(IOC_READ | IOC_WRITE, ty, nr, size)
 }
 
 const USBDEVFS_CONTROL: c_ulong = iorw(b'U', 0, size_of::<UsbfsCtrlTransfer>());
 const USBDEVFS_BULK: c_ulong = iorw(b'U', 2, size_of::<UsbfsBulkTransfer>());
+const USBDEVFS_GET_CAPABILITIES: c_ulong = ior(b'U', 26, size_of::<u32>());
+const MAX_BULK_BUFFER_LENGTH: usize = 16384;
+const USBFS_CAP_NO_PACKET_SIZE_LIM: u32 = 0x04;
 
 pub fn devices() -> Result<DeviceList, Error> {
     let mut devices = Vec::new();
@@ -125,9 +142,12 @@ pub fn open(device: &Device) -> Result<crate::DeviceHandle, Error> {
         }
         Err(err) => return Err(err.into()),
     };
+    let fd = file.as_raw_fd();
+    let mut caps = 0u32;
+    let _ = unsafe { libc::ioctl(fd, USBDEVFS_GET_CAPABILITIES, &mut caps) };
 
     Ok(crate::DeviceHandle {
-        inner: LinuxDeviceHandle { file },
+        inner: LinuxDeviceHandle { file, caps },
     })
 }
 
@@ -280,18 +300,68 @@ fn usbfs_data_transfer(
     if buffer.direction() != endpoint_direction {
         return Err(invalid_argument());
     }
-    let len = usize_to_u32(buffer.len())?;
-    let data_ptr = match buffer {
-        TransferBuffer::In(buffer) => buffer.as_mut_ptr() as *mut c_void,
-        TransferBuffer::Out(buffer) => buffer.as_ptr() as *mut c_void,
-    };
+    let timeout_ms = duration_to_timeout(timeout);
+    match buffer {
+        TransferBuffer::In(buffer) => transfer_in_chunks(handle, endpoint, buffer, timeout_ms),
+        TransferBuffer::Out(buffer) => transfer_out_chunks(handle, endpoint, buffer, timeout_ms),
+    }
+}
+
+fn transfer_in_chunks(
+    handle: &DeviceHandle,
+    endpoint: u8,
+    buffer: &mut [u8],
+    timeout_ms: u32,
+) -> Result<usize, Error> {
+    let limit = handle.inner.max_bulk_chunk();
+    let mut total = 0usize;
+    while total < buffer.len() {
+        let chunk = cmp::min(limit, buffer.len() - total);
+        let chunk_u32 = usize_to_u32(chunk)?;
+        let ptr = unsafe { buffer.as_mut_ptr().add(total) as *mut c_void };
+        let read = submit_bulk(handle, endpoint, ptr, chunk_u32, timeout_ms)?;
+        total += read;
+        if read < chunk {
+            break;
+        }
+    }
+    Ok(total)
+}
+
+fn transfer_out_chunks(
+    handle: &DeviceHandle,
+    endpoint: u8,
+    buffer: &[u8],
+    timeout_ms: u32,
+) -> Result<usize, Error> {
+    let limit = handle.inner.max_bulk_chunk();
+    let mut total = 0usize;
+    while total < buffer.len() {
+        let chunk = cmp::min(limit, buffer.len() - total);
+        let chunk_u32 = usize_to_u32(chunk)?;
+        let ptr = unsafe { buffer.as_ptr().add(total) as *mut c_void };
+        let wrote = submit_bulk(handle, endpoint, ptr, chunk_u32, timeout_ms)?;
+        total += wrote;
+        if wrote < chunk {
+            break;
+        }
+    }
+    Ok(total)
+}
+
+fn submit_bulk(
+    handle: &DeviceHandle,
+    endpoint: u8,
+    data_ptr: *mut c_void,
+    len: u32,
+    timeout_ms: u32,
+) -> Result<usize, Error> {
     let mut transfer = UsbfsBulkTransfer {
         ep: endpoint as u32,
         len,
-        timeout: duration_to_timeout(timeout),
+        timeout: timeout_ms,
         data: data_ptr,
     };
-
     let result = unsafe { libc::ioctl(handle.as_raw_fd(), USBDEVFS_BULK, &mut transfer) };
     if result < 0 {
         Err(Error::from(io::Error::last_os_error()))

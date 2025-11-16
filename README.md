@@ -17,6 +17,16 @@ should happen in `rusb/`.
   pipelines when needed.
 - `legacy/libusb-c/tests-c/` – relocated C test harnesses.
 
+## Runtime Model
+
+- **Native targets (Linux/Android, Windows, macOS):** APIs block synchronously
+  on the calling thread while the backend issues ioctl/WinUSB/IOKit requests.
+- **WebUSB (`wasm32-unknown-unknown` + `webusb` feature):** every public API is
+  `async` and integrates with the browser event loop.  Combine the optional
+  `webusb-threads` feature with cross-origin isolated builds and atomics-enabled
+  wasm to call `rusb::init_webusb_threads()` and move heavy work to a Rayon
+  worker pool.
+
 ## Building the Rust crate
 
 ```bash
@@ -34,6 +44,11 @@ WebAssembly/WebUSB builds require the `webusb` feature and a target of
 ```bash
 cd rusb
 wasm-pack build --target web --features webusb
+# To opt into threads:
+# RUSTFLAGS="-C target-feature=+atomics,+bulk-memory,+mutable-globals" \\
+#   wasm-pack build --target web --features webusb,webusb-threads
+# (remember to run wasm-bindgen/wasm-pack with `--enable-threads` and serve your
+# bundle with COOP/COEP headers so browsers allow multithreading.)
 ```
 
 The build script automatically enables `web_sys_unstable_apis` when the feature

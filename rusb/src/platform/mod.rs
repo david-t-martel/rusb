@@ -24,6 +24,8 @@ pub use self::macos::{
 
 #[cfg(all(target_arch = "wasm32", feature = "webusb"))]
 pub mod wasm;
+#[cfg(all(target_arch = "wasm32", feature = "webusb-threads"))]
+pub use self::wasm::init_thread_pool;
 #[cfg(all(target_arch = "wasm32", feature = "webusb"))]
 pub use self::wasm::{
     WasmDevice as Device, WasmDeviceHandle as DeviceHandle, bulk_transfer, control_transfer,

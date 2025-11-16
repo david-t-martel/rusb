@@ -13,6 +13,8 @@ use std::time::Duration;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::JsValue;
 use wasm_bindgen_futures::JsFuture;
+#[cfg(feature = "webusb-threads")]
+use wasm_bindgen_rayon::init_thread_pool as rayon_init_thread_pool;
 use web_sys::{
     DomException, Usb, UsbConfiguration, UsbControlTransferParameters, UsbDevice, UsbDirection,
     UsbInTransferResult, UsbInterface, UsbOutTransferResult, UsbRecipient, UsbRequestType,
@@ -25,6 +27,17 @@ pub struct WasmDevice(pub UsbDevice);
 /// The WebUSB-specific device handle.
 pub struct WasmDeviceHandle {
     pub device: UsbDevice,
+}
+
+/// Initializes the rayon thread pool when the `webusb-threads` feature is enabled.
+#[cfg(feature = "webusb-threads")]
+pub async fn init_thread_pool(workers: Option<usize>) -> Result<(), Error> {
+    let default_threads = web_sys::window()
+        .map(|win| win.navigator().hardware_concurrency())
+        .filter(|count| *count > 0)
+        .unwrap_or(4);
+    let threads = workers.unwrap_or(default_threads as usize).max(1);
+    rayon_init_thread_pool(threads).await.map_err(js_to_error)
 }
 
 /// Retrieves the list of WebUSB devices that the user has already granted access to.
