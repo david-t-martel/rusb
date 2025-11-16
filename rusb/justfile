@@ -1,0 +1,21 @@
+# Justfile for the rusb project
+
+# Default task
+default: build
+
+# Build the project
+build:
+    cargo build
+
+# Run tests
+test:
+    cargo test
+
+# Check for formatting and clippy lints
+check:
+    cargo fmt --all -- --check
+    cargo clippy --all -- -D warnings
+
+# Clean the project
+clean:
+    cargo clean

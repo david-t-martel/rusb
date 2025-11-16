@@ -1,0 +1,25 @@
+[package]
+name = "rusb"
+version = "0.1.0"
+edition = "2024"
+
+[features]
+webusb = []
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "0.52.0", features = [
+    "Win32_Foundation",
+    "Win32_Devices_DeviceAndDriverInstallation",
+    "Win32_Storage_FileSystem",
+    "Win32_Security",
+    "Win32_System_SystemServices",
+    "Win32_Devices_Properties",
+    "Win32_Devices_Usb",
+] }
+
+[target.'cfg(target_os = "android")'.dependencies]
+jni = "0.21.1"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+core-foundation-sys = "0.8.6"
+io-kit-sys = "0.5.0"
