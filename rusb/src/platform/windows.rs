@@ -37,7 +37,7 @@ pub struct WindowsDeviceHandle {
 impl Drop for WindowsDeviceHandle {
     fn drop(&mut self) {
         if self.handle != INVALID_HANDLE_VALUE {
-            unsafe { let _ = CloseHandle(self.handle); };
+            let _ = unsafe { CloseHandle(self.handle) };
         }
     }
 }
@@ -52,7 +52,7 @@ pub fn devices() -> Result<DeviceList, Error> {
         )
     }?;
 
-    if dev_info_set == windows::Win32::Devices::DeviceAndDriverInstallation::HDEVINFO(INVALID_HANDLE_VALUE.0) {
+    if dev_info_set.is_invalid() {
         return Err(Error::from(windows::core::Error::from_win32()));
     }
 
@@ -166,4 +166,15 @@ pub fn get_device_descriptor(device: &Device) -> Result<DeviceDescriptor, Error>
     }
 
     Ok(descriptor)
+}
+
+// Transfer functions to be implemented later.
+pub fn control_transfer() -> Result<(), Error> {
+    Ok(())
+}
+pub fn bulk_transfer() -> Result<(), Error> {
+    Ok(())
+}
+pub fn interrupt_transfer() -> Result<(), Error> {
+    Ok(())
 }

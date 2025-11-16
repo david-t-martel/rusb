@@ -8,7 +8,7 @@ use jni::objects::{JObject, JValue};
 
 /// The Android-specific device structure.
 pub struct AndroidDevice {
-    // Information about the device, like its Android UsbDevice object.
+    // To be implemented: Should hold a JObject representing the Android UsbDevice.
 }
 
 /// The Android-specific device handle.
@@ -17,24 +17,42 @@ pub struct AndroidDeviceHandle<'a> {
 }
 
 pub fn devices() -> Result<DeviceList, Error> {
-    // Implementation to enumerate devices using JNI will go here.
+    // To be implemented:
+    // 1. Get the UsbManager system service.
+    // 2. Call getDeviceList() to get a HashMap of devices.
+    // 3. Iterate over the HashMap and create AndroidDevice structs.
+    // See: https://developer.android.com/reference/android/hardware/usb/UsbManager#getDeviceList()
     Ok(DeviceList {
         devices: Vec::new(),
     })
 }
 
-pub fn open<'a>(env: &'a JNIEnv<'a>, device: JObject<'a>) -> Result<crate::DeviceHandle, Error> {
-    let usb_manager = env.get_static_field("android/content/Context", "USB_SERVICE", "Ljava/lang/String;").unwrap().l().unwrap();
-    let usb_manager = env.call_method(env.get_context(), "getSystemService", "(Ljava/lang/String;)Ljava/lang/Object;", &[JValue::from(usb_manager)]).unwrap().l().unwrap();
-    let connection = env.call_method(usb_manager, "openDevice", "(Landroid/hardware/usb/UsbDevice;)Landroid/hardware/usb/UsbDeviceConnection;", &[JValue::from(device)]).unwrap().l().unwrap();
-
-    Ok(crate::DeviceHandle {
-        inner: AndroidDeviceHandle {
-            connection,
-        },
-    })
+pub fn open<'a>(_env: &'a JNIEnv<'a>, _device: JObject<'a>) -> Result<crate::DeviceHandle, Error> {
+    // To be implemented:
+    // 1. Get the UsbManager.
+    // 2. Call openDevice() on the UsbManager with the UsbDevice object.
+    // 3. This requires handling user permissions.
+    // See: https://developer.android.com/reference/android/hardware/usb/UsbManager#openDevice(android.hardware.usb.UsbDevice)
+    unimplemented!()
 }
 
-pub fn get_device_descriptor(device: &Device) -> Result<DeviceDescriptor, Error> {
+pub fn get_device_descriptor(_device: &Device) -> Result<DeviceDescriptor, Error> {
+    // To be implemented:
+    // 1. The DeviceDescriptor is not directly available from the Android UsbDevice object.
+    // 2. You must use the UsbDeviceConnection.
+    // 3. Call getRawDescriptors() to get the raw descriptor data as a byte array.
+    // 4. Parse the byte array to extract the DeviceDescriptor.
+    // See: https://developer.android.com/reference/android/hardware/usb/UsbDeviceConnection#getRawDescriptors()
     unimplemented!()
+}
+
+// Transfer functions to be implemented later.
+pub fn control_transfer() -> Result<(), Error> {
+    Ok(())
+}
+pub fn bulk_transfer() -> Result<(), Error> {
+    Ok(())
+}
+pub fn interrupt_transfer() -> Result<(), Error> {
+    Ok(())
 }

@@ -2,8 +2,6 @@
 
 use crate::{Device, DeviceDescriptor, DeviceList, Error};
 use core_foundation_sys::base::{kCFAllocatorDefault, CFUUIDGetUUIDBytes};
-use core_foundation_sys::dictionary::{CFDictionaryCreateMutable, CFDictionarySetValue};
-use core_foundation_sys::string::CFStringCreateWithCString;
 use io_kit_sys::base::{kIOMasterPortDefault, mach_port_t};
 use io_kit_sys::iterator::IOIteratorNext;
 use io_kit_sys::object::IOObjectRelease;
@@ -11,13 +9,13 @@ use io_kit_sys::service::{IOServiceGetMatchingServices, IOServiceMatching};
 use io_kit_sys::types::{io_iterator_t, io_object_t};
 use io_kit_sys::usb::{
     kIOUSBDeviceClassName, kIOUSBDeviceUserClientTypeID, kIOCFPlugInInterfaceID,
-    kIOUSBDeviceInterfaceID, IOUSBDeviceInterface, IOUSBFindInterfaceRequest,
-    kIOUSBFindInterfaceDontCare, IOCreatePlugInInterfaceForService,
+    kIOUSBDeviceInterfaceID, IOUSBDeviceInterface, IOCreatePlugInInterfaceForService,
 };
+use std::mem::zeroed;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
-pub struct IOUSBDevRequest {
+pub struct IOUSBDevRequestTO {
     pub bmRequestType: u8,
     pub bRequest: u8,
     pub wValue: u16,
@@ -25,20 +23,39 @@ pub struct IOUSBDevRequest {
     pub wLength: u16,
     pub pData: *mut ::std::os::raw::c_void,
     pub wLenDone: u32,
+    pub noDataTimeout: u32,
+    pub completionTimeout: u32,
 }
 
 /// The macOS-specific device structure.
 pub struct MacosDevice {
-    _device: io_object_t,
+    device_interface: *mut *mut IOUSBDeviceInterface,
+    descriptor: DeviceDescriptor,
+}
+
+impl Drop for MacosDevice {
+    fn drop(&mut self) {
+        unsafe {
+            (**self.device_interface).Release(self.device_interface);
+        }
+    }
 }
 
 /// The macOS-specific device handle.
 pub struct MacosDeviceHandle {
-    // Handle to the device.
+    device_interface: *mut *mut IOUSBDeviceInterface,
+}
+
+impl Drop for MacosDeviceHandle {
+    fn drop(&mut self) {
+        unsafe {
+            (**self.device_interface).USBDeviceClose(self.device_interface);
+        }
+    }
 }
 
 pub fn devices() -> Result<DeviceList, Error> {
-    let mut devices = Vec::<Device>::new();
+    let mut devices = Vec::new();
     let mut iterator: io_iterator_t = 0;
 
     unsafe {
@@ -55,9 +72,62 @@ pub fn devices() -> Result<DeviceList, Error> {
 
     let mut device = unsafe { IOIteratorNext(iterator) };
     while device != 0 {
-        devices.push(Device {
-            inner: MacosDevice { _device: device },
-        });
+        let mut plugin_interface = std::ptr::null_mut();
+        let mut score = 0;
+        let result = unsafe {
+            IOCreatePlugInInterfaceForService(
+                device,
+                kIOUSBDeviceUserClientTypeID,
+                kIOCFPlugInInterfaceID,
+                &mut plugin_interface,
+                &mut score,
+            )
+        };
+
+        if result == 0 {
+            let mut device_interface = std::ptr::null_mut();
+            let result = unsafe {
+                (**(plugin_interface as *mut *mut IOUSBDeviceInterface))
+                    .QueryInterface(
+                        plugin_interface,
+                        CFUUIDGetUUIDBytes(kIOUSBDeviceInterfaceID),
+                        &mut device_interface,
+                    )
+            };
+
+            if result == 0 {
+                let mut descriptor: DeviceDescriptor = unsafe { zeroed() };
+                let mut request = IOUSBDevRequestTO {
+                    bmRequestType: 0x80,
+                    bRequest: 6,
+                    wValue: (1 << 8) | 0,
+                    wIndex: 0,
+                    wLength: std::mem::size_of::<DeviceDescriptor>() as u16,
+                    pData: &mut descriptor as *mut _ as *mut std::ffi::c_void,
+                    wLenDone: 0,
+                    noDataTimeout: 1000,
+                    completionTimeout: 1000,
+                };
+
+                let result = unsafe {
+                    (**device_interface).DeviceRequestTO(device_interface, &mut request)
+                };
+
+                if result == 0 {
+                    devices.push(Device {
+                        inner: MacosDevice {
+                            device_interface,
+                            descriptor,
+                        },
+                    });
+                }
+            }
+            unsafe {
+                (**(plugin_interface as *mut *mut IOUSBDeviceInterface)).Release(plugin_interface);
+            }
+        }
+
+        unsafe { IOObjectRelease(device) };
         device = unsafe { IOIteratorNext(iterator) };
     }
 
@@ -69,95 +139,29 @@ pub fn devices() -> Result<DeviceList, Error> {
 }
 
 pub fn open(device: &Device) -> Result<crate::DeviceHandle, Error> {
-    let mut plugin_interface = std::ptr::null_mut();
-    let mut score = 0;
-    let result = unsafe {
-        IOCreatePlugInInterfaceForService(
-            device.inner._device,
-            kIOUSBDeviceUserClientTypeID,
-            kIOCFPlugInInterfaceID,
-            &mut plugin_interface,
-            &mut score,
-        )
-    };
-
-    if result != 0 {
-        return Err(Error::Os(result));
-    }
-
-    let mut device_interface = std::ptr::null_mut();
-    let result = unsafe {
-        (**(plugin_interface as *mut *mut IOUSBDeviceInterface))
-            .QueryInterface(
-                plugin_interface,
-                CFUUIDGetUUIDBytes(kIOUSBDeviceInterfaceID),
-                &mut device_interface,
-            )
-    };
-
+    let result = unsafe { (**device.inner.device_interface).USBDeviceOpenSeize(device.inner.device_interface) };
     if result != 0 {
         return Err(Error::Os(result));
     }
 
     Ok(crate::DeviceHandle {
         inner: MacosDeviceHandle {
-            // device_interface,
+            device_interface: device.inner.device_interface,
         },
     })
 }
 
 pub fn get_device_descriptor(device: &Device) -> Result<DeviceDescriptor, Error> {
-    let mut plugin_interface = std::ptr::null_mut();
-    let mut score = 0;
-    let result = unsafe {
-        IOCreatePlugInInterfaceForService(
-            device.inner._device,
-            kIOUSBDeviceUserClientTypeID,
-            kIOCFPlugInInterfaceID,
-            &mut plugin_interface,
-            &mut score,
-        )
-    };
+    Ok(device.inner.descriptor.clone())
+}
 
-    if result != 0 {
-        return Err(Error::Os(result));
-    }
-
-    let mut device_interface = std::ptr::null_mut();
-    let result = unsafe {
-        (**(plugin_interface as *mut *mut IOUSBDeviceInterface))
-            .QueryInterface(
-                plugin_interface,
-                CFUUIDGetUUIDBytes(kIOUSBDeviceInterfaceID),
-                &mut device_interface,
-            )
-    };
-
-    if result != 0 {
-        return Err(Error::Os(result));
-    }
-
-    let mut descriptor: DeviceDescriptor = unsafe { std::mem::zeroed() };
-    let mut request = IOUSBDevRequest {
-        bmRequestType: 0x80, // USBmakebmRequestType(kUSBIn, kUSBStandard, kUSBDevice)
-        bRequest: 6, // kUSBRqGetDescriptor
-        wValue: (1 << 8) | 0, // (kUSBDeviceDesc << 8) | 0
-        wIndex: 0,
-        wLength: std::mem::size_of::<DeviceDescriptor>() as u16,
-        pData: &mut descriptor as *mut _ as *mut std::ffi::c_void,
-        wLenDone: 0,
-    };
-
-    let result = unsafe {
-        (**(device_interface as *mut *mut IOUSBDeviceInterface)).DeviceRequest(
-            device_interface,
-            &mut request,
-        )
-    };
-
-    if result != 0 {
-        return Err(Error::Os(result));
-    }
-
-    Ok(descriptor)
+// Transfer functions to be implemented later.
+pub fn control_transfer() -> Result<(), Error> {
+    Ok(())
+}
+pub fn bulk_transfer() -> Result<(), Error> {
+    Ok(())
+}
+pub fn interrupt_transfer() -> Result<(), Error> {
+    Ok(())
 }

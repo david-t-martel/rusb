@@ -14,10 +14,23 @@ pub fn devices() -> Result<DeviceList, Error> {
     Err(Error::NotSupported)
 }
 
-pub fn open(device: &Device) -> Result<crate::DeviceHandle, Error> {
+pub fn open(_device: &Device) -> Result<crate::DeviceHandle, Error> {
     Err(Error::NotSupported)
 }
 
-pub fn get_device_descriptor(device: &Device) -> Result<DeviceDescriptor, Error> {
+pub fn get_device_descriptor(_device: &Device) -> Result<DeviceDescriptor, Error> {
+    Err(Error::NotSupported)
+}
+
+// Transfer functions to be implemented later.
+pub fn control_transfer() -> Result<(), Error> {
+    Err(Error::NotSupported)
+}
+
+pub fn bulk_transfer() -> Result<(), Error> {
+    Err(Error::NotSupported)
+}
+
+pub fn interrupt_transfer() -> Result<(), Error> {
     Err(Error::NotSupported)
 }

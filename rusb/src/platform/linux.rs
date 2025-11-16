@@ -6,7 +6,6 @@ use crate::{Device, DeviceDescriptor, DeviceList, Error};
 use libudev::{Context, Enumerator};
 use std::fs::File;
 use std::os::unix::io::AsRawFd;
-use std::path::Path;
 
 /// The linux-specific device structure.
 pub struct LinuxDevice {
@@ -102,4 +101,15 @@ fn get_sysattr_as<T: std::str::FromStr>(device: &libudev::Device, attr: &str) ->
 
     // udev stores hex values as plain strings, so we parse from hex.
     T::from_str(&val_str).map_err(|_| Error::Os(0)) // Better error needed
+}
+
+// Transfer functions to be implemented later.
+pub fn control_transfer() -> Result<(), Error> {
+    Ok(())
+}
+pub fn bulk_transfer() -> Result<(), Error> {
+    Ok(())
+}
+pub fn interrupt_transfer() -> Result<(), Error> {
+    Ok(())
 }
