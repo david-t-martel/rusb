@@ -1,4 +1,7 @@
 //! A Rust wrapper for libusb.
+//!
+//! TODO: Add comprehensive module-level documentation with examples
+//! TODO: Consider adding feature flags for optional functionality (async, hotplug, etc.)
 
 mod platform;
 pub mod support;
@@ -7,6 +10,8 @@ use std::fmt;
 use std::time::Duration;
 
 /// A list of USB devices.
+/// TODO: Implement IntoIterator trait for ergonomic iteration
+/// TODO: Add filtering methods (by_vid_pid, by_class, etc.)
 pub struct DeviceList {
     devices: Vec<Device>,
 }
@@ -16,9 +21,15 @@ impl DeviceList {
     pub fn iter(&self) -> std::slice::Iter<'_, Device> {
         self.devices.iter()
     }
+
+    // TODO: Add len() method to query number of devices
+    // TODO: Add is_empty() method
 }
 
 /// A USB device.
+/// TODO: Add methods to get bus number and device address
+/// TODO: Add method to get device speed (low/full/high/super)
+/// TODO: Add support for reading string descriptors (manufacturer, product, serial)
 pub struct Device {
     inner: platform::Device,
 }
@@ -40,9 +51,19 @@ impl Device {
     pub fn get_device_descriptor(&self) -> Result<DeviceDescriptor, Error> {
         platform::get_device_descriptor(self)
     }
+
+    // TODO: Add get_configuration_descriptor(config_index) method
+    // TODO: Add get_active_configuration() method
+    // TODO: Add reset() method to reset the device
 }
 
 /// A handle to an open USB device.
+/// TODO: Add support for claiming/releasing interfaces
+/// TODO: Add support for setting configuration
+/// TODO: Add support for setting alternate interface settings
+/// TODO: Add support for clearing halt condition on endpoints
+/// TODO: Add support for reading string descriptors
+/// TODO: Add support for detaching/attaching kernel drivers (Linux)
 pub struct DeviceHandle {
     inner: platform::DeviceHandle,
 }
@@ -114,6 +135,15 @@ impl DeviceHandle {
     ) -> Result<usize, Error> {
         platform::interrupt_transfer(self, endpoint, buffer, timeout).await
     }
+
+    // TODO: Add isochronous transfer support for all platforms
+    // TODO: Add async transfer submission API for better performance on native platforms
+    // TODO: Add method to claim_interface(interface_number)
+    // TODO: Add method to release_interface(interface_number)
+    // TODO: Add method to set_interface_alt_setting(interface, alt_setting)
+    // TODO: Add method to clear_halt(endpoint)
+    // TODO: Add method to reset_device()
+    // TODO: Add method to get_string_descriptor_ascii(index) for reading strings
 }
 
 #[cfg(target_os = "linux")]
@@ -191,6 +221,17 @@ pub enum TransferDirection {
 }
 
 /// An error from the USB library.
+/// TODO: Add more specific error variants for better error handling:
+/// - NoDevice (device disconnected)
+/// - AccessDenied (permission issues)
+/// - Busy (resource already in use)
+/// - Timeout (operation timed out)
+/// - Overflow (buffer overflow)
+/// - Pipe (pipe/endpoint error)
+/// - Interrupted (system call interrupted)
+/// - InvalidParam (invalid parameter)
+/// TODO: Implement proper Display messages that are user-friendly
+/// TODO: Add context information to errors (which device, endpoint, etc.)
 #[derive(Debug)]
 pub enum Error {
     /// An OS-level error.
@@ -227,24 +268,31 @@ impl From<windows::core::Error> for Error {
 }
 
 /// A device descriptor.
+/// TODO: Add helper methods to interpret fields (e.g., usb_version_string())
+/// TODO: Add PartialEq and Eq derives for comparison
+/// TODO: Validate that length and descriptor_type are correct
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub struct DeviceDescriptor {
     pub length: u8,
     pub descriptor_type: u8,
-    pub usb_version: u16,
+    pub usb_version: u16,  // TODO: Store as BCD properly (major.minor.patch)
     pub device_class: u8,
     pub device_subclass: u8,
     pub device_protocol: u8,
     pub max_packet_size_0: u8,
     pub vendor_id: u16,
     pub product_id: u16,
-    pub device_version: u16,
+    pub device_version: u16,  // TODO: Store as BCD properly
     pub manufacturer_string_index: u8,
     pub product_string_index: u8,
     pub serial_number_string_index: u8,
     pub num_configurations: u8,
 }
+
+// TODO: Add ConfigurationDescriptor struct
+// TODO: Add InterfaceDescriptor struct
+// TODO: Add EndpointDescriptor struct
 
 /// Returns a list of all USB devices.
 #[cfg(not(all(target_arch = "wasm32", feature = "webusb")))]
@@ -263,3 +311,9 @@ pub async fn devices() -> Result<DeviceList, Error> {
 pub async fn init_webusb_threads(workers: Option<usize>) -> Result<(), Error> {
     platform::init_thread_pool(workers).await
 }
+
+// TODO: Add hotplug API for device arrival/removal notifications (all platforms)
+// TODO: Add function to get library version
+// TODO: Add context management for better resource cleanup and thread safety
+// TODO: Add logging/tracing support for debugging USB issues
+// TODO: Consider adding a builder pattern for DeviceHandle configuration
