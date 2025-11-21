@@ -210,8 +210,9 @@ impl DeviceHandle {
             return Err(Error::Unknown);
         }
 
-        // Validate that b_length doesn't exceed the actual bytes read
-        if b_length > len {
+        // Validate that b_length is within valid range (at least 2 bytes for header)
+        // and doesn't exceed the actual bytes read
+        if b_length < 2 || b_length > len {
             return Err(Error::Unknown);
         }
 
