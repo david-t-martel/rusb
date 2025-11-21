@@ -327,6 +327,43 @@ fn io_result(code: IOReturn) -> Result<(), Error> {
     }
 }
 
+pub fn claim_interface(_handle: &crate::DeviceHandle, _interface: u8) -> Result<(), Error> {
+    // TODO: Implement claim_interface via IOKit
+    Err(Error::NotSupported)
+}
+
+pub fn release_interface(_handle: &crate::DeviceHandle, _interface: u8) -> Result<(), Error> {
+    // TODO: Implement release_interface via IOKit
+    Err(Error::NotSupported)
+}
+
+pub fn set_interface_alt_setting(
+    _handle: &crate::DeviceHandle,
+    _interface: u8,
+    _alt_setting: u8,
+) -> Result<(), Error> {
+    // TODO: Implement set_interface_alt_setting via IOKit
+    Err(Error::NotSupported)
+}
+
+pub fn reset_device(_handle: &crate::DeviceHandle) -> Result<(), Error> {
+    // TODO: Implement reset_device via IOKit
+    Err(Error::NotSupported)
+}
+
+pub fn clear_halt(_handle: &crate::DeviceHandle, _endpoint: u8) -> Result<(), Error> {
+    // TODO: Implement clear_halt via IOKit
+    Err(Error::NotSupported)
+}
+
+pub fn detach_kernel_driver(_handle: &crate::DeviceHandle, _interface: u8) -> Result<(), Error> {
+    Err(Error::NotSupported)
+}
+
+pub fn attach_kernel_driver(_handle: &crate::DeviceHandle, _interface: u8) -> Result<(), Error> {
+    Err(Error::NotSupported)
+}
+
 // TODO: Add tests for macOS-specific functionality
 // TODO: Add tests for proper reference counting of device_interface
 // TODO: Add benchmarks comparing against libusb-1.0 on macOS

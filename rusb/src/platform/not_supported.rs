@@ -40,6 +40,38 @@ pub fn control_transfer(
     Err(Error::NotSupported)
 }
 
+pub fn claim_interface(_handle: &DeviceHandle, _interface: u8) -> Result<(), Error> {
+    Err(Error::NotSupported)
+}
+
+pub fn release_interface(_handle: &DeviceHandle, _interface: u8) -> Result<(), Error> {
+    Err(Error::NotSupported)
+}
+
+pub fn set_interface_alt_setting(
+    _handle: &DeviceHandle,
+    _interface: u8,
+    _alt_setting: u8,
+) -> Result<(), Error> {
+    Err(Error::NotSupported)
+}
+
+pub fn reset_device(_handle: &DeviceHandle) -> Result<(), Error> {
+    Err(Error::NotSupported)
+}
+
+pub fn clear_halt(_handle: &DeviceHandle, _endpoint: u8) -> Result<(), Error> {
+    Err(Error::NotSupported)
+}
+
+pub fn detach_kernel_driver(_handle: &DeviceHandle, _interface: u8) -> Result<(), Error> {
+    Err(Error::NotSupported)
+}
+
+pub fn attach_kernel_driver(_handle: &DeviceHandle, _interface: u8) -> Result<(), Error> {
+    Err(Error::NotSupported)
+}
+
 pub fn bulk_transfer(
     _handle: &DeviceHandle,
     _endpoint: u8,

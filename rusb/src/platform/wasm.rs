@@ -307,6 +307,43 @@ fn usb() -> Result<Usb, Error> {
     Ok(navigator.usb())
 }
 
+pub fn claim_interface(_handle: &DeviceHandle, _interface: u8) -> Result<(), Error> {
+    // TODO: Implement claim_interface (async)
+    Err(Error::NotSupported)
+}
+
+pub fn release_interface(_handle: &DeviceHandle, _interface: u8) -> Result<(), Error> {
+    // TODO: Implement release_interface (async)
+    Err(Error::NotSupported)
+}
+
+pub fn set_interface_alt_setting(
+    _handle: &DeviceHandle,
+    _interface: u8,
+    _alt_setting: u8,
+) -> Result<(), Error> {
+    // TODO: Implement set_interface_alt_setting (async)
+    Err(Error::NotSupported)
+}
+
+pub fn reset_device(_handle: &DeviceHandle) -> Result<(), Error> {
+    // TODO: Implement reset_device (async)
+    Err(Error::NotSupported)
+}
+
+pub fn clear_halt(_handle: &DeviceHandle, _endpoint: u8) -> Result<(), Error> {
+    // TODO: Implement clear_halt (async)
+    Err(Error::NotSupported)
+}
+
+pub fn detach_kernel_driver(_handle: &DeviceHandle, _interface: u8) -> Result<(), Error> {
+    Err(Error::NotSupported)
+}
+
+pub fn attach_kernel_driver(_handle: &DeviceHandle, _interface: u8) -> Result<(), Error> {
+    Err(Error::NotSupported)
+}
+
 fn js_to_error(value: JsValue) -> Error {
     // TODO: Improve error mapping - currently loses important context
     // TODO: Map common DomException names to specific Error variants
