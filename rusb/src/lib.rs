@@ -136,14 +136,94 @@ impl DeviceHandle {
         platform::interrupt_transfer(self, endpoint, buffer, timeout).await
     }
 
+    /// Claims the interface with the given number.
+    pub fn claim_interface(&self, interface: u8) -> Result<(), Error> {
+        platform::claim_interface(self, interface)
+    }
+
+    /// Releases the interface with the given number.
+    pub fn release_interface(&self, interface: u8) -> Result<(), Error> {
+        platform::release_interface(self, interface)
+    }
+
+    /// Sets the alternate setting for the interface.
+    pub fn set_interface_alt_setting(&self, interface: u8, alt_setting: u8) -> Result<(), Error> {
+        platform::set_interface_alt_setting(self, interface, alt_setting)
+    }
+
+    /// Resets the device.
+    pub fn reset_device(&self) -> Result<(), Error> {
+        platform::reset_device(self)
+    }
+
+    /// Clears the halt condition on the endpoint.
+    pub fn clear_halt(&self, endpoint: u8) -> Result<(), Error> {
+        platform::clear_halt(self, endpoint)
+    }
+
+    /// Detaches the kernel driver from the interface.
+    pub fn detach_kernel_driver(&self, interface: u8) -> Result<(), Error> {
+        platform::detach_kernel_driver(self, interface)
+    }
+
+    /// Attaches the kernel driver to the interface.
+    pub fn attach_kernel_driver(&self, interface: u8) -> Result<(), Error> {
+        platform::attach_kernel_driver(self, interface)
+    }
+
+    /// Reads a string descriptor from the device.
+    #[cfg(not(all(target_arch = "wasm32", feature = "webusb")))]
+    pub fn read_string_descriptor(
+        &self,
+        index: u8,
+        lang_id: u16,
+        buffer: &mut [u8],
+    ) -> Result<usize, Error> {
+        let request = ControlRequest {
+            request_type: 0x80, // Device to Host, Standard, Device
+            request: 0x06,      // GET_DESCRIPTOR
+            value: (0x03 << 8) | (index as u16),
+            index: lang_id,
+        };
+
+        self.control_transfer(
+            request,
+            ControlTransferData::In(buffer),
+            Duration::from_secs(1),
+        )
+    }
+
+    /// Reads a string descriptor and converts it to an ASCII string.
+    #[cfg(not(all(target_arch = "wasm32", feature = "webusb")))]
+    pub fn read_string_descriptor_ascii(&self, index: u8) -> Result<String, Error> {
+        let mut buf = [0u8; 255];
+        let len = self.read_string_descriptor(index, 0x0409, &mut buf)?;
+
+        if len < 2 {
+            return Err(Error::Unknown);
+        }
+
+        let b_length = buf[0] as usize;
+        let b_descriptor_type = buf[1];
+
+        if b_descriptor_type != 0x03 {
+            return Err(Error::Unknown);
+        }
+
+        // String is UTF-16LE
+        let utf16_len = (b_length - 2) / 2;
+        let mut utf16 = Vec::with_capacity(utf16_len);
+        for i in 0..utf16_len {
+            let lower = buf[2 + i * 2] as u16;
+            let upper = buf[2 + i * 2 + 1] as u16;
+            utf16.push(lower | (upper << 8));
+        }
+
+        String::from_utf16(&utf16).map_err(|_| Error::Unknown)
+    }
+
     // TODO: Add isochronous transfer support for all platforms
     // TODO: Add async transfer submission API for better performance on native platforms
-    // TODO: Add method to claim_interface(interface_number)
-    // TODO: Add method to release_interface(interface_number)
-    // TODO: Add method to set_interface_alt_setting(interface, alt_setting)
-    // TODO: Add method to clear_halt(endpoint)
-    // TODO: Add method to reset_device()
-    // TODO: Add method to get_string_descriptor_ascii(index) for reading strings
 }
 
 #[cfg(target_os = "linux")]

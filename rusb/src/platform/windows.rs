@@ -401,3 +401,40 @@ fn usize_to_u16(value: usize) -> Result<u16, Error> {
 fn duration_to_timeout(timeout: Duration) -> u32 {
     timeout.as_millis().min(u32::MAX as u128) as u32
 }
+
+pub fn claim_interface(_handle: &crate::DeviceHandle, _interface: u8) -> Result<(), Error> {
+    // TODO: Implement interface claiming via WinUsb
+    Err(Error::NotSupported)
+}
+
+pub fn release_interface(_handle: &crate::DeviceHandle, _interface: u8) -> Result<(), Error> {
+    // TODO: Implement interface release via WinUsb
+    Err(Error::NotSupported)
+}
+
+pub fn set_interface_alt_setting(
+    _handle: &crate::DeviceHandle,
+    _interface: u8,
+    _alt_setting: u8,
+) -> Result<(), Error> {
+    // TODO: Implement set_interface_alt_setting via WinUsb
+    Err(Error::NotSupported)
+}
+
+pub fn reset_device(_handle: &crate::DeviceHandle) -> Result<(), Error> {
+    // TODO: Implement reset_device
+    Err(Error::NotSupported)
+}
+
+pub fn clear_halt(_handle: &crate::DeviceHandle, _endpoint: u8) -> Result<(), Error> {
+    // TODO: Implement clear_halt via WinUsb_ResetPipe
+    Err(Error::NotSupported)
+}
+
+pub fn detach_kernel_driver(_handle: &crate::DeviceHandle, _interface: u8) -> Result<(), Error> {
+    Err(Error::NotSupported)
+}
+
+pub fn attach_kernel_driver(_handle: &crate::DeviceHandle, _interface: u8) -> Result<(), Error> {
+    Err(Error::NotSupported)
+}
