@@ -210,6 +210,11 @@ impl DeviceHandle {
             return Err(Error::Unknown);
         }
 
+        // Validate that b_length doesn't exceed the actual bytes read
+        if b_length > len {
+            return Err(Error::Unknown);
+        }
+
         // String is UTF-16LE
         let utf16_len = (b_length - 2) / 2;
         let mut utf16 = Vec::with_capacity(utf16_len);
