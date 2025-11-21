@@ -2,6 +2,15 @@
 //! Many ESP32 development boards rely on CP210x/FTDI bridges, but newer boards
 //! (ESP32-S3, ESP32-C3) expose native USB CDC ACM interfaces which can be
 //! accessed directly via `rusb`.
+//!
+//! TODO: Add complete ESP-IDF flashing protocol implementation
+//! TODO: Add SLIP frame parsing for reading responses
+//! TODO: Add checksum verification for flash operations
+//! TODO: Add support for different ESP32 variants (C3, S2, S3, C6, etc.)
+//! TODO: Add async variants of blocking operations
+//! TODO: Add progress callback for flash operations
+//! TODO: Add support for reading flash contents
+//! TODO: Add proper error handling for bootloader responses
 
 use crate::{
     ControlRequest, ControlTransferData, Device, DeviceHandle, DeviceList, Error, TransferBuffer,
@@ -15,11 +24,17 @@ const CDC_SET_CONTROL_LINE_STATE: u8 = 0x22;
 const USB_CLASS_REQUEST_OUT: u8 = 0x21;
 
 /// Serial bridge for native ESP32-Sx USB CDC interfaces.
+/// TODO: Add chip detection (ESP32-S3, ESP32-C3, ESP32-C6, etc.)
+/// TODO: Cache bootloader sync state
+/// TODO: Add read buffer for SLIP frame parsing
 pub struct Esp32SerialBridge {
     handle: DeviceHandle,
     in_ep: u8,
     out_ep: u8,
     interface: u8,
+    // TODO: Add chip_type: Option<Esp32ChipType>
+    // TODO: Add bootloader_synced: bool
+    // TODO: Add read_buffer: Vec<u8>
 }
 
 impl Esp32SerialBridge {
@@ -126,6 +141,9 @@ impl Esp32SerialBridge {
     }
 
     /// Toggles DTR/RTS to reset the chip and enter the ROM bootloader.
+    /// TODO: Add variant for different reset sequences (some boards use inverted logic)
+    /// TODO: Add sync check to verify bootloader is actually running
+    /// TODO: Make delays configurable for different board designs
     pub fn enter_bootloader_sequence(&self) -> Result<(), Error> {
         // Sequence mirrors esptool.py: assert IO0 low + reset low, release reset, release IO0.
         self.set_control_lines(false, true)?; // EN low, IO0 high
@@ -138,7 +156,16 @@ impl Esp32SerialBridge {
         Ok(())
     }
 
+    // TODO: Add sync_bootloader() method to send SYNC command and verify response
+    // TODO: Add read_chip_id() method
+    // TODO: Add read_mac_address() method
+    // TODO: Add erase_flash() method
+    // TODO: Add verify_flash() method
+    // TODO: Add read_flash_block() method for dumping firmware
+
     /// Sends a SLIP-encoded frame (see esptool protocol) over the CDC channel.
+    /// TODO: Add timeout parameter
+    /// TODO: Add retry logic for write failures
     pub fn send_slip_frame(&self, payload: &[u8]) -> Result<usize, Error> {
         const END: u8 = 0xC0;
         const ESC: u8 = 0xDB;
@@ -158,7 +185,14 @@ impl Esp32SerialBridge {
         self.write(&frame)
     }
 
+    // TODO: Add receive_slip_frame() method to parse responses
+    // TODO: Add helper to decode SLIP frames from read buffer
+
     /// Minimal flash helper: wraps address + payload into a SLIP frame.
+    /// TODO: Add proper ESP-IDF flash command structure (direction, command, size, checksum, data)
+    /// TODO: Add checksum calculation
+    /// TODO: Wait for and verify response from bootloader
+    /// TODO: Add support for compressed flash data
     pub fn write_flash_block(&self, address: u32, data: &[u8]) -> Result<(), Error> {
         let mut payload = Vec::with_capacity(8 + data.len());
         payload.extend_from_slice(&address.to_le_bytes());
@@ -167,3 +201,9 @@ impl Esp32SerialBridge {
         self.send_slip_frame(&payload).map(|_| ())
     }
 }
+
+// TODO: Add tests for SLIP encoding/decoding
+// TODO: Add tests for bootloader sequence
+// TODO: Add complete example program for flashing firmware
+// TODO: Add support for partition table parsing
+// TODO: Document supported ESP32 variants and their USB capabilities

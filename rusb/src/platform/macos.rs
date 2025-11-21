@@ -1,4 +1,14 @@
 //! macOS-specific USB backend implementation.
+//!
+//! TODO: Add support for isochronous transfers
+//! TODO: Add interface claiming/releasing
+//! TODO: Add configuration descriptor parsing
+//! TODO: Add string descriptor reading
+//! TODO: Add device reset support
+//! TODO: Add clear halt support
+//! TODO: Add hotplug notification using IOServiceAddMatchingNotification
+//! TODO: Fix potential memory leak - device_interface is shared between Device and DeviceHandle
+//! TODO: Add better error code mapping from IOReturn to Error
 
 use crate::{
     ControlRequest, ControlTransferData, Device, DeviceDescriptor, DeviceList, Error,
@@ -35,9 +45,13 @@ pub struct IOUSBDevRequestTO {
 }
 
 /// The macOS-specific device structure.
+/// TODO: CRITICAL - device_interface is not properly reference counted, causes potential use-after-free
+/// TODO: Cache additional device properties (speed, location ID, etc.)
 pub struct MacosDevice {
     device_interface: *mut *mut IOUSBDeviceInterface,
     descriptor: DeviceDescriptor,
+    // TODO: Add location_id: u32
+    // TODO: Add device_speed: DeviceSpeed
 }
 
 impl Drop for MacosDevice {
@@ -49,8 +63,13 @@ impl Drop for MacosDevice {
 }
 
 /// The macOS-specific device handle.
+/// TODO: Track claimed interfaces
+/// TODO: Store interface handles for composite devices
+/// TODO: CRITICAL - Ensure proper cleanup of device_interface pointer
 pub struct MacosDeviceHandle {
     device_interface: *mut *mut IOUSBDeviceInterface,
+    // TODO: Add interface_handles: HashMap<u8, *mut *mut IOUSBInterfaceInterface>
+    // TODO: Add claimed_interfaces: HashSet<u8>
 }
 
 impl Drop for MacosDeviceHandle {
@@ -62,6 +81,9 @@ impl Drop for MacosDeviceHandle {
 }
 
 pub fn devices() -> Result<DeviceList, Error> {
+    // TODO: Add caching to avoid expensive IOKit enumeration on every call
+    // TODO: Filter devices by class/subclass/protocol if needed
+    // TODO: Add better error messages for IOKit errors
     let mut devices = Vec::new();
     let mut iterator: io_iterator_t = 0;
 
@@ -145,6 +167,9 @@ pub fn devices() -> Result<DeviceList, Error> {
 }
 
 pub fn open(device: &Device) -> Result<crate::DeviceHandle, Error> {
+    // TODO: CRITICAL - Increment reference count on device_interface to avoid use-after-free
+    // TODO: Consider using USBDeviceOpen first, only use USBDeviceOpenSeize if that fails
+    // TODO: Add better error messages (e.g., "device already opened by another process")
     let result = unsafe {
         (**device.inner.device_interface).USBDeviceOpenSeize(device.inner.device_interface)
     };
@@ -293,9 +318,17 @@ fn timeout_components(timeout: Duration) -> (u32, u32) {
 }
 
 fn io_result(code: IOReturn) -> Result<(), Error> {
+    // TODO: Map common IOReturn codes to more specific Error variants
+    // kIOReturnNoDevice, kIOReturnNotOpen, kIOReturnTimeout, etc.
     if code == kIOReturnSuccess {
         Ok(())
     } else {
         Err(Error::Os(code))
     }
 }
+
+// TODO: Add tests for macOS-specific functionality
+// TODO: Add tests for proper reference counting of device_interface
+// TODO: Add benchmarks comparing against libusb-1.0 on macOS
+// TODO: Add support for getting device location ID and port numbers
+// TODO: Implement proper interface claiming for composite devices

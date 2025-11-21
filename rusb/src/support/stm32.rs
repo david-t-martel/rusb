@@ -1,6 +1,15 @@
 //! Helpers for interacting with STM32 devices that expose DFU or CDC/ACM
 //! interfaces over USB. This is intentionally lightweight so downstream tools
 //! can extend it with board-specific commands.
+//!
+//! TODO: Add support for DFU file format parsing (.dfu files)
+//! TODO: Add support for reading device protection status
+//! TODO: Add support for setting/clearing read protection
+//! TODO: Add support for DFU_CLRSTATUS command
+//! TODO: Add async variants of blocking operations
+//! TODO: Add progress callback for flash operations
+//! TODO: Add verification after flashing
+//! TODO: Add support for STM32 unique ID reading
 
 use crate::{
     ControlRequest, ControlTransferData, Device, DeviceHandle, DeviceList, Error, TransferBuffer,
@@ -14,9 +23,14 @@ const USB_TYPE_CLASS_INTERFACE_OUT: u8 = 0x21;
 const USB_TYPE_CLASS_INTERFACE_IN: u8 = 0xA1;
 
 /// High-level access to a DFU-capable STM32 bootloader.
+/// TODO: Add device type detection (STM32F1, F4, L4, H7, etc.)
+/// TODO: Cache DFU status to avoid redundant queries
+/// TODO: Track flash state machine
 pub struct Stm32DfuDevice {
     handle: DeviceHandle,
     interface: u8,
+    // TODO: Add device_type: Option<Stm32DeviceType>
+    // TODO: Add last_status: Option<DfuStatus>
 }
 
 impl Stm32DfuDevice {
@@ -92,6 +106,8 @@ impl Stm32DfuDevice {
     }
 
     /// Polls the status via DFU_GETSTATUS.
+    /// TODO: Parse status buffer into a proper struct
+    /// TODO: Return DfuStatus with state, status, poll_timeout fields
     pub fn get_status(&self, buf: &mut [u8; 6]) -> Result<(), Error> {
         let request = ControlRequest {
             request_type: USB_TYPE_CLASS_INTERFACE_IN,
@@ -107,6 +123,10 @@ impl Stm32DfuDevice {
             )
             .map(|_| ())
     }
+
+    // TODO: Add get_state() method (DFU_GETSTATE command)
+    // TODO: Add abort() method (DFU_ABORT command)
+    // TODO: Add clear_status() method (DFU_CLRSTATUS command)
 
     /// Waits until the device reports it is ready or a timeout occurs.
     pub fn wait_while_busy(&self, timeout: Duration) -> Result<(), Error> {
@@ -141,6 +161,9 @@ impl Stm32DfuDevice {
 }
 
 /// Minimal CDC/ACM helper for STLink virtual COM ports.
+/// TODO: Add line coding configuration (baud rate, stop bits, parity, data bits)
+/// TODO: Add control line state management (DTR, RTS)
+/// TODO: Add break signal support
 pub struct Stm32VirtualCom {
     handle: DeviceHandle,
     in_ep: u8,
@@ -171,4 +194,16 @@ impl Stm32VirtualCom {
             Duration::from_millis(200),
         )
     }
+
+    // TODO: Add set_line_coding() method
+    // TODO: Add set_control_line_state() method
+    // TODO: Add get_line_coding() method
+    // TODO: Add send_break() method
 }
+
+// TODO: Add tests for DFU operations
+// TODO: Add tests for virtual COM operations
+// TODO: Add example program for DFU flashing
+// TODO: Add support for parsing DFU file format
+// TODO: Document supported STM32 bootloader versions and their capabilities
+// TODO: Add helper to detect STM32 chip ID and flash size

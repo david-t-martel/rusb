@@ -3,6 +3,14 @@
 //! WebUSB-specific USB backend implementation. All operations are asynchronous and rely on the
 //! browser's WebUSB APIs. Build scripts enable `web_sys_unstable_apis` automatically when this
 //! backend is compiled so that the necessary DOM bindings are available.
+//!
+//! TODO: Add isochronous transfer support when available in WebUSB spec
+//! TODO: Improve error handling - currently loses error context
+//! TODO: Add proper timeout handling (currently ignored)
+//! TODO: Add support for selective interface claiming
+//! TODO: Add device disconnect detection and notification
+//! TODO: Cache device permissions to improve reconnection
+//! TODO: Add support for requestDevice() to allow user selection
 
 use crate::{
     ControlRequest, ControlTransferData, Device, DeviceDescriptor, DeviceHandle, DeviceList, Error,
@@ -22,11 +30,15 @@ use web_sys::{
 };
 
 /// The WebUSB-specific device structure.
+/// TODO: Add caching for device information to reduce JS calls
 pub struct WasmDevice(pub UsbDevice);
 
 /// The WebUSB-specific device handle.
+/// TODO: Track which interfaces are claimed
+/// TODO: Add configuration tracking
 pub struct WasmDeviceHandle {
     pub device: UsbDevice,
+    // TODO: Add claimed_interfaces: HashSet<u8>
 }
 
 /// Initializes the rayon thread pool when the `webusb-threads` feature is enabled.
@@ -138,7 +150,7 @@ pub async fn control_transfer(
     handle: &DeviceHandle,
     request: ControlRequest,
     data: ControlTransferData<'_>,
-    _timeout: Duration,
+    _timeout: Duration,  // TODO: Implement timeout using JS timeout/abort controller
 ) -> Result<usize, Error> {
     let params = build_control_parameters(request)?;
     match data {
@@ -179,7 +191,7 @@ pub async fn bulk_transfer(
     handle: &DeviceHandle,
     endpoint: u8,
     buffer: TransferBuffer<'_>,
-    _timeout: Duration,
+    _timeout: Duration,  // TODO: Implement timeout support
 ) -> Result<usize, Error> {
     transfer_pipe(handle, endpoint, buffer).await
 }
@@ -188,7 +200,7 @@ pub async fn interrupt_transfer(
     handle: &DeviceHandle,
     endpoint: u8,
     buffer: TransferBuffer<'_>,
-    _timeout: Duration,
+    _timeout: Duration,  // TODO: Implement timeout support
 ) -> Result<usize, Error> {
     transfer_pipe(handle, endpoint, buffer).await
 }
@@ -296,11 +308,15 @@ fn usb() -> Result<Usb, Error> {
 }
 
 fn js_to_error(value: JsValue) -> Error {
+    // TODO: Improve error mapping - currently loses important context
+    // TODO: Map common DomException names to specific Error variants
+    // TODO: Log error messages for debugging
     if let Some(dom) = value.dyn_ref::<DomException>() {
         return Error::Os(dom.code() as i32);
     }
     if let Some(err) = value.dyn_ref::<js_sys::Error>() {
         if let Some(message) = err.message().as_string() {
+            // TODO: This hash is a poor substitute for proper error handling
             let hash = message
                 .bytes()
                 .fold(0i32, |acc, b| acc.wrapping_add(b as i32));
@@ -309,3 +325,9 @@ fn js_to_error(value: JsValue) -> Error {
     }
     Error::Unknown
 }
+
+// TODO: Add tests for WebUSB functionality (use wasm-bindgen-test)
+// TODO: Add support for device filtering when calling requestDevice()
+// TODO: Add helper to trigger browser's device picker
+// TODO: Optimize data copying between Rust and JS
+// TODO: Add support for device disconnect events

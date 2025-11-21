@@ -4,6 +4,17 @@
 //! metadata and the usbfs device nodes. This avoids any dependency on the C
 //! libusb shim or libudev by interrogating the kernel's exported files
 //! directly.
+//!
+//! TODO: Add support for isochronous transfers via USBDEVFS_SUBMITURB
+//! TODO: Add async transfer API using io_uring or epoll for better performance
+//! TODO: Add interface claiming/releasing via USBDEVFS_CLAIMINTERFACE
+//! TODO: Add configuration setting via USBDEVFS_SETCONFIGURATION
+//! TODO: Add alternate setting selection via USBDEVFS_SETINTERFACE
+//! TODO: Add kernel driver detach/attach via USBDEVFS_DISCONNECT/CONNECT
+//! TODO: Add clear halt via USBDEVFS_CLEAR_HALT
+//! TODO: Add device reset via USBDEVFS_RESET
+//! TODO: Add string descriptor reading
+//! TODO: Add hotplug support using udev or netlink
 
 use crate::{
     ControlRequest, ControlTransferData, Device, DeviceDescriptor, DeviceHandle, DeviceList, Error,
@@ -23,16 +34,25 @@ use std::time::Duration;
 const SYSFS_USB_DEVICES: &str = "/sys/bus/usb/devices";
 
 /// Linux representation of a USB device discovered in sysfs.
+/// TODO: Cache more device information (speed, manufacturer, product, serial)
+/// TODO: Add port numbers for topology information
 pub struct LinuxDevice {
     sysfs_path: PathBuf,
     bus_number: u16,
     device_address: u16,
+    // TODO: Add device_speed: DeviceSpeed field
+    // TODO: Add port_chain: Vec<u8> for USB topology
 }
 
 /// Handle that keeps the corresponding usbfs file descriptor alive.
+/// TODO: Track claimed interfaces to prevent double-claim
+/// TODO: Track active configuration
+/// TODO: Add support for async URB submissions
 pub struct LinuxDeviceHandle {
     file: File,
     caps: u32,
+    // TODO: Add claimed_interfaces: HashSet<u8>
+    // TODO: Add active_config: Option<u8>
 }
 
 impl LinuxDeviceHandle {
@@ -102,6 +122,8 @@ const MAX_BULK_BUFFER_LENGTH: usize = 16384;
 const USBFS_CAP_NO_PACKET_SIZE_LIM: u32 = 0x04;
 
 pub fn devices() -> Result<DeviceList, Error> {
+    // TODO: Add caching mechanism to avoid rescanning sysfs on every call
+    // TODO: Filter out devices without proper permissions and provide better error messages
     let mut devices = Vec::new();
     for entry in fs::read_dir(SYSFS_USB_DEVICES)? {
         let entry = entry?;
@@ -114,6 +136,9 @@ pub fn devices() -> Result<DeviceList, Error> {
 
         let bus_number = read_u16_auto(&path, "busnum")?;
         let device_address = read_u16_auto(&path, "devnum")?;
+
+        // TODO: Read and cache device speed from sysfs
+        // TODO: Read and cache port numbers for topology
 
         devices.push(Device {
             inner: LinuxDevice {
@@ -135,9 +160,11 @@ pub fn open(device: &Device) -> Result<crate::DeviceHandle, Error> {
 
     // Most systems allow read/write, but fall back to read-only for users
     // without CAP_SYS_RAWIO.
+    // TODO: Provide better error message when permission is denied (suggest udev rules)
     let file = match OpenOptions::new().read(true).write(true).open(&node_path) {
         Ok(file) => file,
         Err(err) if err.kind() == ErrorKind::PermissionDenied => {
+            // TODO: Log a warning that device opened in read-only mode
             OpenOptions::new().read(true).open(&node_path)?
         }
         Err(err) => return Err(err.into()),
@@ -145,6 +172,9 @@ pub fn open(device: &Device) -> Result<crate::DeviceHandle, Error> {
     let fd = file.as_raw_fd();
     let mut caps = 0u32;
     let _ = unsafe { libc::ioctl(fd, USBDEVFS_GET_CAPABILITIES, &mut caps) };
+
+    // TODO: Query and store the active configuration
+    // TODO: Initialize claimed_interfaces tracking
 
     Ok(crate::DeviceHandle {
         inner: LinuxDeviceHandle { file, caps },
@@ -232,6 +262,8 @@ pub fn control_transfer(
     data: ControlTransferData<'_>,
     timeout: Duration,
 ) -> Result<usize, Error> {
+    // TODO: Add validation that request_type recipient bits are valid
+    // TODO: Consider caching standard descriptor requests for performance
     if let Some(direction) = data.direction() {
         let setup_direction = if request.request_type & 0x80 != 0 {
             TransferDirection::In
@@ -313,6 +345,8 @@ fn transfer_in_chunks(
     buffer: &mut [u8],
     timeout_ms: u32,
 ) -> Result<usize, Error> {
+    // TODO: Optimize by using async URB submissions for multiple chunks in parallel
+    // TODO: Handle short packet detection more efficiently
     let limit = handle.inner.max_bulk_chunk();
     let mut total = 0usize;
     while total < buffer.len() {
@@ -413,4 +447,12 @@ mod tests {
         assert_eq!(parse_u8_auto("0x0A").unwrap(), 10);
         assert_eq!(parse_u16_auto("1d6b").unwrap(), 0x1d6b);
     }
+
+    // TODO: Add tests for device enumeration (mock sysfs)
+    // TODO: Add tests for control transfers
+    // TODO: Add tests for bulk transfers with various buffer sizes
+    // TODO: Add tests for timeout handling
+    // TODO: Add tests for error conditions (permission denied, device not found, etc.)
+    // TODO: Add tests for chunked transfer logic
+    // TODO: Add benchmarks comparing against libusb-1.0
 }

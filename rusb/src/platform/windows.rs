@@ -1,6 +1,15 @@
 //! Windows-specific USB backend implementation.
-
-//! Windows-specific USB backend implementation.
+//!
+//! TODO: Add support for isochronous transfers
+//! TODO: Add interface claiming/releasing via WinUsb_ClaimInterface/WinUsb_ReleaseInterface
+//! TODO: Add configuration descriptor parsing
+//! TODO: Add string descriptor reading via WinUsb_GetDescriptor
+//! TODO: Add support for multiple interfaces per device
+//! TODO: Add support for composite devices with multiple WinUSB interfaces
+//! TODO: Add device reset support
+//! TODO: Add clear halt via WinUsb_ResetPipe or WinUsb_AbortPipe
+//! TODO: Add hotplug notification using RegisterDeviceNotification
+//! TODO: Cache device descriptors to avoid repeated queries
 
 use crate::{
     ControlRequest, ControlTransferData, Device, DeviceDescriptor, DeviceList, Error,
@@ -29,15 +38,24 @@ use windows::core::{GUID, PCWSTR};
 const GUID_DEVINTERFACE_USB_DEVICE: GUID = GUID::from_u128(0xA5DCBF10_6530_11D2_901F_00C04FB951ED);
 
 /// The windows-specific device structure.
+/// TODO: Cache device descriptor to avoid reopening device for descriptor queries
+/// TODO: Store instance ID and hardware ID for better device identification
+/// TODO: Add support for multiple interfaces (composite devices)
 #[derive(Debug)]
 pub struct WindowsDevice {
     device_path: OsString,
+    // TODO: Add cached_descriptor: Option<DeviceDescriptor>
+    // TODO: Add instance_id: Option<String>
 }
 
 /// The windows-specific device handle.
+/// TODO: Track claimed interfaces to support composite devices
+/// TODO: Store multiple interface handles for multi-interface devices
 pub struct WindowsDeviceHandle {
     pub file: HANDLE,
     pub interface: WINUSB_INTERFACE_HANDLE,
+    // TODO: Add additional_interfaces: Vec<WINUSB_INTERFACE_HANDLE> for composite devices
+    // TODO: Add claimed_interfaces: HashSet<u8>
 }
 
 impl Drop for WindowsDeviceHandle {
@@ -52,6 +70,9 @@ impl Drop for WindowsDeviceHandle {
 }
 
 pub fn devices() -> Result<DeviceList, Error> {
+    // TODO: Add caching mechanism to avoid expensive device enumeration on every call
+    // TODO: Support filtering by device class/interface class
+    // TODO: Add better error handling and error messages for Setup API failures
     let dev_info_set = unsafe {
         SetupDiGetClassDevsW(
             Some(&GUID_DEVINTERFACE_USB_DEVICE),
@@ -82,6 +103,8 @@ pub fn devices() -> Result<DeviceList, Error> {
     .is_ok()
     {
         i += 1;
+        // TODO: Extract device instance ID for better tracking
+        // TODO: Check if device is accessible before adding to list
         let mut required_size = 0;
 
         // First call to get the required buffer size
@@ -171,6 +194,8 @@ pub fn open(device: &Device) -> Result<crate::DeviceHandle, Error> {
 }
 
 pub fn get_device_descriptor(device: &Device) -> Result<DeviceDescriptor, Error> {
+    // TODO: Cache descriptor in WindowsDevice to avoid reopening the device
+    // TODO: Validate descriptor length and type fields
     let handle = open(device)?;
     let mut descriptor: DeviceDescriptor = unsafe { std::mem::zeroed() };
     let mut length = 0;
@@ -202,6 +227,8 @@ pub fn control_transfer(
     data: ControlTransferData<'_>,
     timeout: Duration,
 ) -> Result<usize, Error> {
+    // TODO: Validate request_type bits are correct
+    // TODO: Add retry logic for transient errors
     if let Some(direction) = data.direction() {
         let setup_dir = if request.request_type & 0x80 != 0 {
             TransferDirection::In
@@ -331,6 +358,7 @@ fn maybe_set_timeout(
     endpoint: u8,
     timeout: Duration,
 ) -> Result<(), Error> {
+    // TODO: Cache timeout settings per endpoint to avoid redundant calls
     if timeout.is_zero() {
         return Ok(());
     }
@@ -348,6 +376,11 @@ fn maybe_set_timeout(
 
     Ok(())
 }
+
+// TODO: Add tests for Windows-specific functionality
+// TODO: Add tests comparing against libusb-1.0 on Windows
+// TODO: Add benchmarks for transfer performance
+// TODO: Add helper functions to query pipe information (type, max packet size, etc.)
 
 fn ensure_u32_len(len: usize) -> Result<(), Error> {
     if len > u32::MAX as usize {
