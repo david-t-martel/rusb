@@ -53,20 +53,29 @@ pub enum FlowControl {
 
 impl FtdiDevice {
     /// Searches the USB bus for a matching VID/PID and opens it.
-    /// TODO: Add variant that takes VID/PID parameters for custom FTDI devices
     pub fn open_first() -> Result<Self, Error> {
         let list = crate::devices()?;
         Self::open_from_list(&list)
     }
 
+    pub fn open_custom(vid: u16, pid: u16) -> Result<Self, Error> {
+        let list = crate::devices()?;
+        for dev in list.iter() {
+            if let Ok(desc) = dev.get_device_descriptor() {
+                if desc.vendor_id == vid && desc.product_id == pid {
+                    return Self::open_device(dev, 0x81, 0x02, 0);
+                }
+            }
+        }
+        Err(Error::NotSupported)
+    }
+
     /// Tries to open the first FTDI adapter from an existing `DeviceList`.
-    /// TODO: Return more specific error when no device found
-    /// TODO: Add method to open by serial number
     pub fn open_from_list(list: &DeviceList) -> Result<Self, Error> {
         for dev in list.iter() {
             if let Ok(desc) = dev.get_device_descriptor() {
                 if desc.vendor_id == FTDI_VID && DEFAULT_PIDS.contains(&desc.product_id) {
-                    // TODO: Detect actual endpoint addresses from descriptors
+                    // Default endpoints for FT232R
                     return Self::open_device(dev, 0x81, 0x02, 0);
                 }
             }

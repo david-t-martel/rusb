@@ -386,26 +386,55 @@ impl From<windows::core::Error> for Error {
 }
 
 /// A device descriptor.
-/// TODO: Add helper methods to interpret fields (e.g., usb_version_string())
-/// TODO: Add PartialEq and Eq derives for comparison
-/// TODO: Validate that length and descriptor_type are correct
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(C)]
 pub struct DeviceDescriptor {
     pub length: u8,
     pub descriptor_type: u8,
-    pub usb_version: u16,  // TODO: Store as BCD properly (major.minor.patch)
+    pub usb_version: u16,
     pub device_class: u8,
     pub device_subclass: u8,
     pub device_protocol: u8,
     pub max_packet_size_0: u8,
     pub vendor_id: u16,
     pub product_id: u16,
-    pub device_version: u16,  // TODO: Store as BCD properly
+    pub device_version: u16,
     pub manufacturer_string_index: u8,
     pub product_string_index: u8,
     pub serial_number_string_index: u8,
     pub num_configurations: u8,
+}
+
+impl DeviceDescriptor {
+    /// Returns the major version of the USB specification.
+    pub fn usb_version_major(&self) -> u8 {
+        ((self.usb_version >> 8) & 0xFF) as u8
+    }
+
+    /// Returns the minor version of the USB specification.
+    pub fn usb_version_minor(&self) -> u8 {
+        ((self.usb_version >> 4) & 0x0F) as u8
+    }
+
+    /// Returns the sub-minor version of the USB specification.
+    pub fn usb_version_sub_minor(&self) -> u8 {
+        (self.usb_version & 0x0F) as u8
+    }
+
+    /// Returns the major version of the device release.
+    pub fn device_version_major(&self) -> u8 {
+        ((self.device_version >> 8) & 0xFF) as u8
+    }
+
+    /// Returns the minor version of the device release.
+    pub fn device_version_minor(&self) -> u8 {
+        ((self.device_version >> 4) & 0x0F) as u8
+    }
+
+    /// Returns the sub-minor version of the device release.
+    pub fn device_version_sub_minor(&self) -> u8 {
+        (self.device_version & 0x0F) as u8
+    }
 }
 
 /// A configuration descriptor.

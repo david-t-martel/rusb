@@ -57,7 +57,29 @@ impl<W: Write> ChannelLogger<W> {
         timeout: Duration,
     ) -> Result<usize, Error> {
         let res = self.handle.control_transfer(request, data, timeout);
-        // TODO: Log control transfer details (omitted for brevity)
+
+        if let Ok(mut sink) = self.sink.lock() {
+            let ts = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default();
+            write!(
+                sink,
+                "[CTRL] {}.{:03}: ReqType:{:02x} Req:{:02x} Val:{:04x} Idx:{:04x} ",
+                ts.as_secs(),
+                ts.subsec_millis(),
+                request.request_type,
+                request.request,
+                request.value,
+                request.index
+            )
+            .ok();
+
+            match &res {
+                Ok(len) => writeln!(sink, "-> OK ({} bytes)", len).ok(),
+                Err(e) => writeln!(sink, "-> ERR {:?}", e).ok(),
+            };
+        }
+
         res
     }
 

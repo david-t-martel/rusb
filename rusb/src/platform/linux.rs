@@ -55,8 +55,18 @@ impl LinuxDevice {
     }
 
     pub fn speed(&self) -> Speed {
-        // TODO: Read speed from sysfs
-        Speed::Unknown
+        match read_attr(&self.sysfs_path, "speed") {
+            Ok(s) => match s.as_str() {
+                "1.5" => Speed::Low,
+                "12" => Speed::Full,
+                "480" => Speed::High,
+                "5000" => Speed::Super,
+                "10000" => Speed::SuperPlus,
+                "20000" => Speed::SuperPlus,
+                _ => Speed::Unknown,
+            },
+            Err(_) => Speed::Unknown,
+        }
     }
 }
 
