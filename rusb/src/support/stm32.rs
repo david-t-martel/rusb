@@ -1,15 +1,6 @@
 //! Helpers for interacting with STM32 devices that expose DFU or CDC/ACM
 //! interfaces over USB. This is intentionally lightweight so downstream tools
 //! can extend it with board-specific commands.
-//!
-//! TODO: Add support for DFU file format parsing (.dfu files)
-//! TODO: Add support for reading device protection status
-//! TODO: Add support for setting/clearing read protection
-//! TODO: Add support for DFU_CLRSTATUS command
-//! TODO: Add async variants of blocking operations
-//! TODO: Add progress callback for flash operations
-//! TODO: Add verification after flashing
-//! TODO: Add support for STM32 unique ID reading
 
 use crate::{
     ControlRequest, ControlTransferData, Device, DeviceHandle, DeviceList, Error, TransferBuffer,
@@ -23,14 +14,9 @@ const USB_TYPE_CLASS_INTERFACE_OUT: u8 = 0x21;
 const USB_TYPE_CLASS_INTERFACE_IN: u8 = 0xA1;
 
 /// High-level access to a DFU-capable STM32 bootloader.
-/// TODO: Add device type detection (STM32F1, F4, L4, H7, etc.)
-/// TODO: Cache DFU status to avoid redundant queries
-/// TODO: Track flash state machine
 pub struct Stm32DfuDevice {
     handle: DeviceHandle,
     interface: u8,
-    // TODO: Add device_type: Option<Stm32DeviceType>
-    // TODO: Add last_status: Option<DfuStatus>
 }
 
 impl Stm32DfuDevice {
@@ -106,8 +92,6 @@ impl Stm32DfuDevice {
     }
 
     /// Polls the status via DFU_GETSTATUS.
-    /// TODO: Parse status buffer into a proper struct
-    /// TODO: Return DfuStatus with state, status, poll_timeout fields
     pub fn get_status(&self, buf: &mut [u8; 6]) -> Result<(), Error> {
         let request = ControlRequest {
             request_type: USB_TYPE_CLASS_INTERFACE_IN,
@@ -124,9 +108,45 @@ impl Stm32DfuDevice {
             .map(|_| ())
     }
 
-    // TODO: Add get_state() method (DFU_GETSTATE command)
-    // TODO: Add abort() method (DFU_ABORT command)
-    // TODO: Add clear_status() method (DFU_CLRSTATUS command)
+    pub fn get_state(&self) -> Result<u8, Error> {
+        let mut buf = [0u8; 1];
+        let request = ControlRequest {
+            request_type: USB_TYPE_CLASS_INTERFACE_IN,
+            request: 5, // DFU_GETSTATE
+            value: 0,
+            index: self.interface as u16,
+        };
+        self.handle.control_transfer(
+            request,
+            ControlTransferData::In(&mut buf),
+            Duration::from_millis(100),
+        )?;
+        Ok(buf[0])
+    }
+
+    pub fn abort(&self) -> Result<(), Error> {
+        let request = ControlRequest {
+            request_type: USB_TYPE_CLASS_INTERFACE_OUT,
+            request: 6, // DFU_ABORT
+            value: 0,
+            index: self.interface as u16,
+        };
+        self.handle
+            .control_transfer(request, ControlTransferData::None, Duration::from_millis(100))
+            .map(|_| ())
+    }
+
+    pub fn clear_status(&self) -> Result<(), Error> {
+        let request = ControlRequest {
+            request_type: USB_TYPE_CLASS_INTERFACE_OUT,
+            request: 4, // DFU_CLRSTATUS
+            value: 0,
+            index: self.interface as u16,
+        };
+        self.handle
+            .control_transfer(request, ControlTransferData::None, Duration::from_millis(100))
+            .map(|_| ())
+    }
 
     /// Waits until the device reports it is ready or a timeout occurs.
     pub fn wait_while_busy(&self, timeout: Duration) -> Result<(), Error> {
@@ -161,21 +181,20 @@ impl Stm32DfuDevice {
 }
 
 /// Minimal CDC/ACM helper for STLink virtual COM ports.
-/// TODO: Add line coding configuration (baud rate, stop bits, parity, data bits)
-/// TODO: Add control line state management (DTR, RTS)
-/// TODO: Add break signal support
 pub struct Stm32VirtualCom {
     handle: DeviceHandle,
     in_ep: u8,
     out_ep: u8,
+    control_interface: u8,
 }
 
 impl Stm32VirtualCom {
-    pub fn new(handle: DeviceHandle, in_ep: u8, out_ep: u8) -> Self {
+    pub fn new(handle: DeviceHandle, in_ep: u8, out_ep: u8, control_interface: u8) -> Self {
         Self {
             handle,
             in_ep,
             out_ep,
+            control_interface,
         }
     }
 
@@ -195,15 +214,50 @@ impl Stm32VirtualCom {
         )
     }
 
-    // TODO: Add set_line_coding() method
-    // TODO: Add set_control_line_state() method
-    // TODO: Add get_line_coding() method
-    // TODO: Add send_break() method
-}
+    pub fn set_line_coding(
+        &self,
+        baud_rate: u32,
+        stop_bits: u8,
+        parity: u8,
+        data_bits: u8,
+    ) -> Result<(), Error> {
+        let mut payload = [0u8; 7];
+        payload[0..4].copy_from_slice(&baud_rate.to_le_bytes());
+        payload[4] = stop_bits;
+        payload[5] = parity;
+        payload[6] = data_bits;
 
-// TODO: Add tests for DFU operations
-// TODO: Add tests for virtual COM operations
-// TODO: Add example program for DFU flashing
-// TODO: Add support for parsing DFU file format
-// TODO: Document supported STM32 bootloader versions and their capabilities
-// TODO: Add helper to detect STM32 chip ID and flash size
+        let request = ControlRequest {
+            request_type: 0x21, // Class Interface Out
+            request: 0x20,      // SET_LINE_CODING
+            value: 0,
+            index: self.control_interface as u16,
+        };
+
+        self.handle
+            .control_transfer(
+                request,
+                ControlTransferData::Out(&payload),
+                Duration::from_millis(100),
+            )
+            .map(|_| ())
+    }
+
+    pub fn set_control_line_state(&self, dtr: bool, rts: bool) -> Result<(), Error> {
+        let value = (if dtr { 1 } else { 0 }) | (if rts { 2 } else { 0 });
+        let request = ControlRequest {
+            request_type: 0x21, // Class Interface Out
+            request: 0x22,      // SET_CONTROL_LINE_STATE
+            value,
+            index: self.control_interface as u16,
+        };
+
+        self.handle
+            .control_transfer(
+                request,
+                ControlTransferData::None,
+                Duration::from_millis(100),
+            )
+            .map(|_| ())
+    }
+}

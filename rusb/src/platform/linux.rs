@@ -115,11 +115,36 @@ const fn iorw(ty: u8, nr: u8, size: usize) -> c_ulong {
     ioc(IOC_READ | IOC_WRITE, ty, nr, size)
 }
 
+const fn io(ty: u8, nr: u8) -> c_ulong {
+    ioc(0, ty, nr, 0)
+}
+
 const USBDEVFS_CONTROL: c_ulong = iorw(b'U', 0, size_of::<UsbfsCtrlTransfer>());
 const USBDEVFS_BULK: c_ulong = iorw(b'U', 2, size_of::<UsbfsBulkTransfer>());
+const USBDEVFS_SETINTERFACE: c_ulong = ior(b'U', 4, size_of::<UsbfsSetInterface>());
+const USBDEVFS_CLAIMINTERFACE: c_ulong = ior(b'U', 15, size_of::<u32>());
+const USBDEVFS_RELEASEINTERFACE: c_ulong = ior(b'U', 16, size_of::<u32>());
+const USBDEVFS_IOCTL: c_ulong = iorw(b'U', 18, size_of::<UsbfsIoctl>());
+const USBDEVFS_RESET: c_ulong = io(b'U', 20);
+const USBDEVFS_CLEAR_HALT: c_ulong = ior(b'U', 21, size_of::<u32>());
+const USBDEVFS_DISCONNECT: c_ulong = io(b'U', 22);
+const USBDEVFS_CONNECT: c_ulong = io(b'U', 23);
 const USBDEVFS_GET_CAPABILITIES: c_ulong = ior(b'U', 26, size_of::<u32>());
 const MAX_BULK_BUFFER_LENGTH: usize = 16384;
 const USBFS_CAP_NO_PACKET_SIZE_LIM: u32 = 0x04;
+
+#[repr(C)]
+struct UsbfsSetInterface {
+    interface: u32,
+    altsetting: u32,
+}
+
+#[repr(C)]
+struct UsbfsIoctl {
+    ifno: i32,
+    ioctl_code: i32,
+    data: *mut c_void,
+}
 
 pub fn devices() -> Result<DeviceList, Error> {
     // TODO: Add caching mechanism to avoid rescanning sysfs on every call
@@ -430,6 +455,92 @@ fn usize_to_u32(value: usize) -> Result<u32, Error> {
 
 fn invalid_argument() -> Error {
     Error::from(io::Error::from_raw_os_error(libc::EINVAL))
+}
+
+pub fn claim_interface(handle: &DeviceHandle, interface: u8) -> Result<(), Error> {
+    let iface = interface as u32;
+    let result = unsafe { libc::ioctl(handle.as_raw_fd(), USBDEVFS_CLAIMINTERFACE, &iface) };
+    if result < 0 {
+        Err(Error::from(io::Error::last_os_error()))
+    } else {
+        Ok(())
+    }
+}
+
+pub fn release_interface(handle: &DeviceHandle, interface: u8) -> Result<(), Error> {
+    let iface = interface as u32;
+    let result = unsafe { libc::ioctl(handle.as_raw_fd(), USBDEVFS_RELEASEINTERFACE, &iface) };
+    if result < 0 {
+        Err(Error::from(io::Error::last_os_error()))
+    } else {
+        Ok(())
+    }
+}
+
+pub fn set_interface_alt_setting(
+    handle: &DeviceHandle,
+    interface: u8,
+    alt_setting: u8,
+) -> Result<(), Error> {
+    let setintf = UsbfsSetInterface {
+        interface: interface as u32,
+        altsetting: alt_setting as u32,
+    };
+    let result = unsafe { libc::ioctl(handle.as_raw_fd(), USBDEVFS_SETINTERFACE, &setintf) };
+    if result < 0 {
+        Err(Error::from(io::Error::last_os_error()))
+    } else {
+        Ok(())
+    }
+}
+
+pub fn reset_device(handle: &DeviceHandle) -> Result<(), Error> {
+    let result = unsafe { libc::ioctl(handle.as_raw_fd(), USBDEVFS_RESET, 0) };
+    if result < 0 {
+        Err(Error::from(io::Error::last_os_error()))
+    } else {
+        Ok(())
+    }
+}
+
+pub fn clear_halt(handle: &DeviceHandle, endpoint: u8) -> Result<(), Error> {
+    let ep = endpoint as u32;
+    let result = unsafe { libc::ioctl(handle.as_raw_fd(), USBDEVFS_CLEAR_HALT, &ep) };
+    if result < 0 {
+        Err(Error::from(io::Error::last_os_error()))
+    } else {
+        Ok(())
+    }
+}
+
+pub fn detach_kernel_driver(handle: &DeviceHandle, interface: u8) -> Result<(), Error> {
+    let mut command = UsbfsIoctl {
+        ifno: interface as i32,
+        ioctl_code: USBDEVFS_DISCONNECT as i32,
+        data: ptr::null_mut(),
+    };
+
+    let result = unsafe { libc::ioctl(handle.as_raw_fd(), USBDEVFS_IOCTL, &mut command) };
+    if result < 0 {
+        Err(Error::from(io::Error::last_os_error()))
+    } else {
+        Ok(())
+    }
+}
+
+pub fn attach_kernel_driver(handle: &DeviceHandle, interface: u8) -> Result<(), Error> {
+    let mut command = UsbfsIoctl {
+        ifno: interface as i32,
+        ioctl_code: USBDEVFS_CONNECT as i32,
+        data: ptr::null_mut(),
+    };
+
+    let result = unsafe { libc::ioctl(handle.as_raw_fd(), USBDEVFS_IOCTL, &mut command) };
+    if result < 0 {
+        Err(Error::from(io::Error::last_os_error()))
+    } else {
+        Ok(())
+    }
 }
 
 #[cfg(test)]

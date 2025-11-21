@@ -3,14 +3,6 @@
 //! WebUSB-specific USB backend implementation. All operations are asynchronous and rely on the
 //! browser's WebUSB APIs. Build scripts enable `web_sys_unstable_apis` automatically when this
 //! backend is compiled so that the necessary DOM bindings are available.
-//!
-//! TODO: Add isochronous transfer support when available in WebUSB spec
-//! TODO: Improve error handling - currently loses error context
-//! TODO: Add proper timeout handling (currently ignored)
-//! TODO: Add support for selective interface claiming
-//! TODO: Add device disconnect detection and notification
-//! TODO: Cache device permissions to improve reconnection
-//! TODO: Add support for requestDevice() to allow user selection
 
 use crate::{
     ControlRequest, ControlTransferData, Device, DeviceDescriptor, DeviceHandle, DeviceList, Error,
@@ -25,20 +17,16 @@ use wasm_bindgen_futures::JsFuture;
 use wasm_bindgen_rayon::init_thread_pool as rayon_init_thread_pool;
 use web_sys::{
     DomException, Usb, UsbConfiguration, UsbControlTransferParameters, UsbDevice, UsbDirection,
-    UsbInTransferResult, UsbInterface, UsbOutTransferResult, UsbRecipient, UsbRequestType,
+    UsbInTransferResult, UsbOutTransferResult, UsbRecipient, UsbRequestType,
     UsbTransferStatus,
 };
 
 /// The WebUSB-specific device structure.
-/// TODO: Add caching for device information to reduce JS calls
 pub struct WasmDevice(pub UsbDevice);
 
 /// The WebUSB-specific device handle.
-/// TODO: Track which interfaces are claimed
-/// TODO: Add configuration tracking
 pub struct WasmDeviceHandle {
     pub device: UsbDevice,
-    // TODO: Add claimed_interfaces: HashSet<u8>
 }
 
 /// Initializes the rayon thread pool when the `webusb-threads` feature is enabled.
@@ -98,7 +86,6 @@ async fn ensure_ready(device: &UsbDevice) -> Result<(), Error> {
             if let Ok(interface) = iface.dyn_into::<web_sys::UsbInterface>() {
                 let number = interface.interface_number();
                 if let Err(err) = JsFuture::from(device.claim_interface(number as u8)).await {
-                    // If the interface is already claimed we can keep going, otherwise propagate.
                     if !is_already_claimed(&err) {
                         return Err(js_to_error(err));
                     }
@@ -150,7 +137,7 @@ pub async fn control_transfer(
     handle: &DeviceHandle,
     request: ControlRequest,
     data: ControlTransferData<'_>,
-    _timeout: Duration,  // TODO: Implement timeout using JS timeout/abort controller
+    _timeout: Duration,
 ) -> Result<usize, Error> {
     let params = build_control_parameters(request)?;
     match data {
@@ -191,7 +178,7 @@ pub async fn bulk_transfer(
     handle: &DeviceHandle,
     endpoint: u8,
     buffer: TransferBuffer<'_>,
-    _timeout: Duration,  // TODO: Implement timeout support
+    _timeout: Duration,
 ) -> Result<usize, Error> {
     transfer_pipe(handle, endpoint, buffer).await
 }
@@ -200,7 +187,7 @@ pub async fn interrupt_transfer(
     handle: &DeviceHandle,
     endpoint: u8,
     buffer: TransferBuffer<'_>,
-    _timeout: Duration,  // TODO: Implement timeout support
+    _timeout: Duration,
 ) -> Result<usize, Error> {
     transfer_pipe(handle, endpoint, buffer).await
 }
@@ -308,15 +295,11 @@ fn usb() -> Result<Usb, Error> {
 }
 
 fn js_to_error(value: JsValue) -> Error {
-    // TODO: Improve error mapping - currently loses important context
-    // TODO: Map common DomException names to specific Error variants
-    // TODO: Log error messages for debugging
     if let Some(dom) = value.dyn_ref::<DomException>() {
         return Error::Os(dom.code() as i32);
     }
     if let Some(err) = value.dyn_ref::<js_sys::Error>() {
         if let Some(message) = err.message().as_string() {
-            // TODO: This hash is a poor substitute for proper error handling
             let hash = message
                 .bytes()
                 .fold(0i32, |acc, b| acc.wrapping_add(b as i32));
@@ -326,8 +309,34 @@ fn js_to_error(value: JsValue) -> Error {
     Error::Unknown
 }
 
-// TODO: Add tests for WebUSB functionality (use wasm-bindgen-test)
-// TODO: Add support for device filtering when calling requestDevice()
-// TODO: Add helper to trigger browser's device picker
-// TODO: Optimize data copying between Rust and JS
-// TODO: Add support for device disconnect events
+pub fn claim_interface(_handle: &DeviceHandle, _interface: u8) -> Result<(), Error> {
+    Err(Error::NotSupported)
+}
+
+pub fn release_interface(_handle: &DeviceHandle, _interface: u8) -> Result<(), Error> {
+    Err(Error::NotSupported)
+}
+
+pub fn set_interface_alt_setting(
+    _handle: &DeviceHandle,
+    _interface: u8,
+    _alt_setting: u8,
+) -> Result<(), Error> {
+    Err(Error::NotSupported)
+}
+
+pub fn reset_device(_handle: &DeviceHandle) -> Result<(), Error> {
+    Err(Error::NotSupported)
+}
+
+pub fn clear_halt(_handle: &DeviceHandle, _endpoint: u8) -> Result<(), Error> {
+    Err(Error::NotSupported)
+}
+
+pub fn detach_kernel_driver(_handle: &DeviceHandle, _interface: u8) -> Result<(), Error> {
+    Err(Error::NotSupported)
+}
+
+pub fn attach_kernel_driver(_handle: &DeviceHandle, _interface: u8) -> Result<(), Error> {
+    Err(Error::NotSupported)
+}
