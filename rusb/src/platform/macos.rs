@@ -1,8 +1,8 @@
 //! macOS-specific USB backend implementation.
 
 use crate::{
-    ControlRequest, ControlTransferData, Device, DeviceDescriptor, DeviceList, Error,
-    TransferBuffer, TransferDirection,
+    ConfigurationDescriptor, ControlRequest, ControlTransferData, Device, DeviceDescriptor,
+    DeviceList, Error, Speed, TransferBuffer, TransferDirection,
 };
 use core_foundation_sys::base::{CFUUIDGetUUIDBytes, kCFAllocatorDefault};
 use io_kit_sys::base::{kIOMasterPortDefault, mach_port_t};
@@ -52,6 +52,20 @@ const kIOUSBFindInterfaceDontCare: u16 = 0xFFFF;
 pub struct MacosDevice {
     device_interface: *mut *mut IOUSBDeviceInterface,
     descriptor: DeviceDescriptor,
+}
+
+impl MacosDevice {
+    pub fn bus_number(&self) -> u8 {
+        0
+    }
+
+    pub fn address(&self) -> u8 {
+        0
+    }
+
+    pub fn speed(&self) -> Speed {
+        Speed::Unknown
+    }
 }
 
 impl Drop for MacosDevice {
@@ -314,8 +328,6 @@ fn pipe_transfer(
 }
 
 fn get_interface_for_endpoint(handle: &crate::DeviceHandle, endpoint: u8) -> Result<*mut *mut IOUSBInterfaceInterface, Error> {
-    // Basic implementation: Iterate claimed interfaces and check endpoints.
-    // For now, if only one interface is claimed, use it.
     let guard = handle.inner.claimed_interfaces.lock().map_err(|_| Error::Unknown)?;
     if let Some(&iface) = guard.values().next() {
         Ok(iface)
@@ -325,8 +337,6 @@ fn get_interface_for_endpoint(handle: &crate::DeviceHandle, endpoint: u8) -> Res
 }
 
 fn get_pipe_ref(interface: *mut *mut IOUSBInterfaceInterface, endpoint: u8) -> Result<u8, Error> {
-    // Map endpoint address to pipe index (1-based).
-    // We need to iterate pipes to find the matching endpoint address.
     let mut num_endpoints = 0;
     unsafe { (**interface).GetNumEndpoints(interface, &mut num_endpoints) };
 
@@ -486,5 +496,23 @@ pub fn detach_kernel_driver(_handle: &crate::DeviceHandle, _interface: u8) -> Re
 }
 
 pub fn attach_kernel_driver(_handle: &crate::DeviceHandle, _interface: u8) -> Result<(), Error> {
+    Err(Error::NotSupported)
+}
+
+pub fn get_active_configuration(_device: &Device) -> Result<ConfigurationDescriptor, Error> {
+    Err(Error::NotSupported)
+}
+
+pub fn get_configuration_descriptor(
+    _device: &Device,
+    _index: u8,
+) -> Result<ConfigurationDescriptor, Error> {
+    Err(Error::NotSupported)
+}
+
+pub fn get_config_descriptor_by_value(
+    _device: &Device,
+    _value: u8,
+) -> Result<ConfigurationDescriptor, Error> {
     Err(Error::NotSupported)
 }

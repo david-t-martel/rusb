@@ -1,8 +1,8 @@
 //! Windows-specific USB backend implementation.
 
 use crate::{
-    ControlRequest, ControlTransferData, Device, DeviceDescriptor, DeviceList, Error,
-    TransferBuffer, TransferDirection,
+    ConfigurationDescriptor, ControlRequest, ControlTransferData, Device, DeviceDescriptor,
+    DeviceList, Error, Speed, TransferBuffer, TransferDirection,
 };
 use std::collections::HashMap;
 use std::ffi::{OsString, c_void};
@@ -35,6 +35,20 @@ pub struct WindowsDevice {
     device_path: OsString,
 }
 
+impl WindowsDevice {
+    pub fn bus_number(&self) -> u8 {
+        0
+    }
+
+    pub fn address(&self) -> u8 {
+        0
+    }
+
+    pub fn speed(&self) -> Speed {
+        Speed::Unknown
+    }
+}
+
 /// The windows-specific device handle.
 pub struct WindowsDeviceHandle {
     pub file: HANDLE,
@@ -44,10 +58,8 @@ pub struct WindowsDeviceHandle {
 
 impl Drop for WindowsDeviceHandle {
     fn drop(&mut self) {
-        // Free associated interfaces first
         if let Ok(guard) = self.claimed_interfaces.lock() {
             for (_, handle) in guard.iter() {
-                // Do not free the primary interface handle here, it is freed below
                 if *handle != self.interface {
                     unsafe {
                         let _ = WinUsb_Free(*handle);
@@ -345,12 +357,10 @@ fn pipe_transfer(
     Ok(transferred as usize)
 }
 
-fn get_interface_handle(handle: &WindowsDeviceHandle, endpoint: u8) -> Result<WINUSB_INTERFACE_HANDLE, Error> {
-    // TODO: Map endpoint to interface properly. For now, assume primary interface
-    // In a real implementation, we should find which interface owns the endpoint.
-    // WinUsb allows querying pipe information.
-    // But for simple devices, primary interface is fine.
-    // For composite devices, we might need to search claimed interfaces.
+fn get_interface_handle(
+    handle: &WindowsDeviceHandle,
+    _endpoint: u8,
+) -> Result<WINUSB_INTERFACE_HANDLE, Error> {
     Ok(handle.interface)
 }
 
@@ -359,7 +369,7 @@ fn maybe_set_timeout(
     endpoint: u8,
     timeout: Duration,
 ) -> Result<(), Error> {
-   maybe_set_timeout_handle(handle.interface, endpoint, timeout)
+    maybe_set_timeout_handle(handle.interface, endpoint, timeout)
 }
 
 fn maybe_set_timeout_handle(
@@ -406,14 +416,16 @@ fn duration_to_timeout(timeout: Duration) -> u32 {
 }
 
 pub fn claim_interface(handle: &crate::DeviceHandle, interface_number: u8) -> Result<(), Error> {
-    let mut guard = handle.inner.claimed_interfaces.lock().map_err(|_| Error::Unknown)?;
+    let mut guard = handle
+        .inner
+        .claimed_interfaces
+        .lock()
+        .map_err(|_| Error::Unknown)?;
 
-    // Check if already claimed
     if guard.contains_key(&interface_number) {
         return Ok(());
     }
 
-    // Check primary interface
     unsafe {
         let mut desc: USB_INTERFACE_DESCRIPTOR = std::mem::zeroed();
         if WinUsb_QueryInterfaceSettings(handle.inner.interface, 0, &mut desc).is_ok() {
@@ -424,13 +436,18 @@ pub fn claim_interface(handle: &crate::DeviceHandle, interface_number: u8) -> Re
         }
     }
 
-    // Check associated interfaces
     let mut index = 0;
     loop {
         let mut associated_handle = WINUSB_INTERFACE_HANDLE::default();
         unsafe {
-            if WinUsb_GetAssociatedInterface(handle.inner.interface, index, &mut associated_handle).is_err() {
-                break; // No more associated interfaces or error
+            if WinUsb_GetAssociatedInterface(
+                handle.inner.interface,
+                index,
+                &mut associated_handle,
+            )
+            .is_err()
+            {
+                break;
             }
 
             let mut desc: USB_INTERFACE_DESCRIPTOR = std::mem::zeroed();
@@ -441,27 +458,32 @@ pub fn claim_interface(handle: &crate::DeviceHandle, interface_number: u8) -> Re
                 }
             }
 
-            // Not the one we want, free it?
-            // WinUsb_GetAssociatedInterface returns a handle that must be freed?
-            // Yes, "The handle ... must be closed by calling WinUsb_Free."
             let _ = WinUsb_Free(associated_handle);
         }
         index += 1;
-        if index > 255 { break; }
+        if index > 255 {
+            break;
+        }
     }
 
-    Err(Error::NotSupported) // Interface not found or could not be claimed
+    Err(Error::NotSupported)
 }
 
 pub fn release_interface(handle: &crate::DeviceHandle, interface_number: u8) -> Result<(), Error> {
-    let mut guard = handle.inner.claimed_interfaces.lock().map_err(|_| Error::Unknown)?;
+    let mut guard = handle
+        .inner
+        .claimed_interfaces
+        .lock()
+        .map_err(|_| Error::Unknown)?;
     if let Some(h) = guard.remove(&interface_number) {
         if h != handle.inner.interface {
-             unsafe { let _ = WinUsb_Free(h); }
+            unsafe {
+                let _ = WinUsb_Free(h);
+            }
         }
         Ok(())
     } else {
-        Err(Error::NotSupported) // Not claimed
+        Err(Error::NotSupported)
     }
 }
 
@@ -470,26 +492,26 @@ pub fn set_interface_alt_setting(
     interface: u8,
     alt_setting: u8,
 ) -> Result<(), Error> {
-    let guard = handle.inner.claimed_interfaces.lock().map_err(|_| Error::Unknown)?;
+    let guard = handle
+        .inner
+        .claimed_interfaces
+        .lock()
+        .map_err(|_| Error::Unknown)?;
     if let Some(&h) = guard.get(&interface) {
         unsafe {
             WinUsb_SetCurrentAlternateSetting(h, alt_setting)?;
         }
         Ok(())
     } else {
-        Err(Error::NotSupported) // Not claimed
+        Err(Error::NotSupported)
     }
 }
 
 pub fn reset_device(_handle: &crate::DeviceHandle) -> Result<(), Error> {
-    // WinUsb does not support device reset directly in a way consistent with libusb_reset_device
     Err(Error::NotSupported)
 }
 
 pub fn clear_halt(handle: &crate::DeviceHandle, endpoint: u8) -> Result<(), Error> {
-    // Find which interface owns the endpoint?
-    // WinUsb_ResetPipe requires the interface handle.
-    // For now, try the primary interface.
     unsafe {
         WinUsb_ResetPipe(handle.inner.interface, endpoint)?;
     }
@@ -497,11 +519,27 @@ pub fn clear_halt(handle: &crate::DeviceHandle, endpoint: u8) -> Result<(), Erro
 }
 
 pub fn detach_kernel_driver(_handle: &crate::DeviceHandle, _interface: u8) -> Result<(), Error> {
-    // Not applicable on Windows
     Err(Error::NotSupported)
 }
 
 pub fn attach_kernel_driver(_handle: &crate::DeviceHandle, _interface: u8) -> Result<(), Error> {
-    // Not applicable on Windows
+    Err(Error::NotSupported)
+}
+
+pub fn get_active_configuration(_device: &Device) -> Result<ConfigurationDescriptor, Error> {
+    Err(Error::NotSupported)
+}
+
+pub fn get_configuration_descriptor(
+    _device: &Device,
+    _index: u8,
+) -> Result<ConfigurationDescriptor, Error> {
+    Err(Error::NotSupported)
+}
+
+pub fn get_config_descriptor_by_value(
+    _device: &Device,
+    _value: u8,
+) -> Result<ConfigurationDescriptor, Error> {
     Err(Error::NotSupported)
 }

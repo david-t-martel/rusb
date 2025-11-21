@@ -1,15 +1,6 @@
 //! Convenience helpers for FTDI USB-to-serial adapters. The implementation
 //! focuses on common FT232/FT2232 style bridges and relies exclusively on the
 //! public `rusb` APIs so it can run anywhere our backends are supported.
-//!
-//! TODO: Add MPSSE helper functions for SPI/I2C/JTAG bitbanging
-//! TODO: Add async variants of read/write methods
-//! TODO: Add support for FT4232H and FT2232H high-speed modes
-//! TODO: Add support for reading EEPROM configuration
-//! TODO: Add support for FT-X series chips
-//! TODO: Add proper DTR/RTS control methods
-//! TODO: Add read timeout configuration separate from transfer timeout
-//! TODO: Add methods to query chip type and capabilities
 
 use crate::{
     ControlRequest, ControlTransferData, Device, DeviceHandle, DeviceList, Error, TransferBuffer,
@@ -19,28 +10,23 @@ use std::time::Duration;
 /// Default FTDI vendor ID.
 pub const FTDI_VID: u16 = 0x0403;
 const DEFAULT_PIDS: &[u16] = &[0x6001, 0x6010, 0x6011, 0x6014];
+const FTDI_SIO_RESET_REQUEST: u8 = 0;
+const FTDI_SIO_SET_MODEM_CTRL_REQUEST: u8 = 1;
+const FTDI_SIO_SET_FLOW_CTRL_REQUEST: u8 = 2;
 const FTDI_SIO_SET_BAUDRATE_REQUEST: u8 = 3;
 const FTDI_SIO_SET_DATA_REQUEST: u8 = 4;
-const FTDI_SIO_SET_FLOW_CTRL_REQUEST: u8 = 2;
-const FTDI_SIO_RESET_REQUEST: u8 = 0;
-const FTDI_SIO_RESET_PURGE_RX: u16 = 1;
-const FTDI_SIO_RESET_PURGE_TX: u16 = 2;
 const FTDI_SIO_SET_LATENCY_TIMER_REQUEST: u8 = 9;
 const FTDI_SIO_SET_BITMODE_REQUEST: u8 = 0x0B;
 const USB_WRITE_REQUEST: u8 = 0x40;
+const FTDI_SIO_RESET_PURGE_RX: u16 = 1;
+const FTDI_SIO_RESET_PURGE_TX: u16 = 2;
 
 /// Simple wrapper that owns the rusb handle plus endpoint metadata.
-/// TODO: Add chip type detection (FT232R, FT2232H, FT4232H, etc.)
-/// TODO: Cache baud rate and other settings to avoid redundant control transfers
-/// TODO: Add buffer for read operations to handle FTDI status bytes
 pub struct FtdiDevice {
     handle: DeviceHandle,
     in_ep: u8,
     out_ep: u8,
     interface: u8,
-    // TODO: Add chip_type: FtdiChipType field
-    // TODO: Add current_baud: Option<u32>
-    // TODO: Add read_buffer: Vec<u8> for handling FTDI modem status bytes
 }
 
 /// Bit-bang operating modes supported by FTDI chips.
@@ -238,9 +224,6 @@ impl FtdiDevice {
     }
 
     /// Reads into the provided buffer from the IN endpoint.
-    /// TODO: Strip FTDI modem status bytes (first 2 bytes of each packet)
-    /// TODO: Add variant with configurable timeout
-    /// TODO: Handle short reads properly
     pub fn read(&self, data: &mut [u8]) -> Result<usize, Error> {
         self.handle.bulk_transfer(
             self.in_ep,
@@ -249,14 +232,41 @@ impl FtdiDevice {
         )
     }
 
-    // TODO: Add read_with_timeout() method
-    // TODO: Add write_with_timeout() method
-    // TODO: Add get_modem_status() method to read DTR/RTS/CTS/DSR/RI/DCD
-    // TODO: Add set_dtr() and set_rts() methods
-    // TODO: Add get_queue_status() to check bytes available
-    // TODO: Add MPSSE mode helpers (write_mpsse, read_mpsse, etc.)
-    // TODO: Add SPI helper methods for common operations
-    // TODO: Add I2C helper methods for common operations
+    pub fn read_with_timeout(&self, data: &mut [u8], timeout: Duration) -> Result<usize, Error> {
+        self.handle
+            .bulk_transfer(self.in_ep, TransferBuffer::In(data), timeout)
+    }
+
+    pub fn write_with_timeout(&self, data: &[u8], timeout: Duration) -> Result<usize, Error> {
+        self.handle
+            .bulk_transfer(self.out_ep, TransferBuffer::Out(data), timeout)
+    }
+
+    pub fn set_dtr(&self, dtr: bool) -> Result<(), Error> {
+        let val = if dtr { 1 } else { 0 };
+        self.set_modem_control(val | 0x0100)
+    }
+
+    pub fn set_rts(&self, rts: bool) -> Result<(), Error> {
+        let val = if rts { 2 } else { 0 };
+        self.set_modem_control(val | 0x0200)
+    }
+
+    fn set_modem_control(&self, value: u16) -> Result<(), Error> {
+        let request = ControlRequest {
+            request_type: USB_WRITE_REQUEST,
+            request: FTDI_SIO_SET_MODEM_CTRL_REQUEST,
+            value,
+            index: self.interface as u16,
+        };
+        self.handle
+            .control_transfer(
+                request,
+                ControlTransferData::None,
+                Duration::from_millis(100),
+            )
+            .map(|_| ())
+    }
 
     fn reset_pipe(&self, pipe: u16) -> Result<(), Error> {
         let request = ControlRequest {

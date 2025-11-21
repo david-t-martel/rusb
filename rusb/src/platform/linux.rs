@@ -17,7 +17,8 @@
 //! TODO: Add hotplug support using udev or netlink
 
 use crate::{
-    ControlRequest, ControlTransferData, Device, DeviceDescriptor, DeviceHandle, DeviceList, Error,
+    ConfigurationDescriptor, ControlRequest, ControlTransferData, Device, DeviceDescriptor,
+    DeviceHandle, DeviceList, EndpointDescriptor, Error, InterfaceDescriptor, Speed,
     TransferBuffer, TransferDirection,
 };
 use libc::{self, c_ulong};
@@ -42,6 +43,21 @@ pub struct LinuxDevice {
     device_address: u16,
     // TODO: Add device_speed: DeviceSpeed field
     // TODO: Add port_chain: Vec<u8> for USB topology
+}
+
+impl LinuxDevice {
+    pub fn bus_number(&self) -> u8 {
+        self.bus_number as u8
+    }
+
+    pub fn address(&self) -> u8 {
+        self.device_address as u8
+    }
+
+    pub fn speed(&self) -> Speed {
+        // TODO: Read speed from sysfs
+        Speed::Unknown
+    }
 }
 
 /// Handle that keeps the corresponding usbfs file descriptor alive.
@@ -511,6 +527,164 @@ pub fn clear_halt(handle: &DeviceHandle, endpoint: u8) -> Result<(), Error> {
     } else {
         Ok(())
     }
+}
+
+pub fn get_active_configuration(device: &Device) -> Result<ConfigurationDescriptor, Error> {
+    let value_str = read_attr(&device.inner.sysfs_path, "bConfigurationValue")?;
+    let value = value_str
+        .trim()
+        .parse::<u8>()
+        .map_err(|_| Error::Unknown)?;
+    get_config_descriptor_by_value(device, value)
+}
+
+pub fn get_configuration_descriptor(
+    device: &Device,
+    index: u8,
+) -> Result<ConfigurationDescriptor, Error> {
+    let descriptors = fs::read(device.inner.sysfs_path.join("descriptors"))?;
+    parse_config_descriptor(&descriptors, index, None)
+}
+
+pub fn get_config_descriptor_by_value(
+    device: &Device,
+    value: u8,
+) -> Result<ConfigurationDescriptor, Error> {
+    let descriptors = fs::read(device.inner.sysfs_path.join("descriptors"))?;
+    parse_config_descriptor(&descriptors, 0, Some(value))
+}
+
+fn parse_config_descriptor(
+    buffer: &[u8],
+    index: u8,
+    value: Option<u8>,
+) -> Result<ConfigurationDescriptor, Error> {
+    // Skip device descriptor (18 bytes)
+    if buffer.len() < 18 {
+        return Err(Error::Unknown);
+    }
+    let mut offset = 18;
+    let mut current_index = 0;
+
+    while offset < buffer.len() {
+        if offset + 9 > buffer.len() {
+            break;
+        }
+        let b_length = buffer[offset] as usize;
+        let b_descriptor_type = buffer[offset + 1];
+
+        if b_length < 2 {
+            return Err(Error::Unknown);
+        }
+
+        if b_descriptor_type == 0x02 {
+            // CONFIGURATION
+            let total_length = (buffer[offset + 2] as u16) | ((buffer[offset + 3] as u16) << 8);
+            let config_value = buffer[offset + 5];
+
+            let match_found = if let Some(val) = value {
+                val == config_value
+            } else {
+                current_index == index
+            };
+
+            if match_found {
+                return parse_single_config(&buffer[offset..], total_length as usize);
+            }
+
+            current_index += 1;
+            offset += total_length as usize;
+        } else {
+            offset += b_length;
+        }
+    }
+    Err(Error::NotSupported) // Not found
+}
+
+fn parse_single_config(buffer: &[u8], total_len: usize) -> Result<ConfigurationDescriptor, Error> {
+    if buffer.len() < 9 || buffer.len() < total_len {
+        return Err(Error::Unknown);
+    }
+
+    let mut config = ConfigurationDescriptor {
+        length: buffer[0],
+        descriptor_type: buffer[1],
+        total_length: total_len as u16,
+        num_interfaces: buffer[4],
+        configuration_value: buffer[5],
+        configuration_string_index: if buffer[6] > 0 { Some(buffer[6]) } else { None },
+        attributes: buffer[7],
+        max_power: buffer[8],
+        interfaces: Vec::new(),
+        extra: Vec::new(),
+    };
+
+    let mut offset = 9;
+    let mut current_interface: Option<InterfaceDescriptor> = None;
+
+    while offset < total_len {
+        if offset + 2 > total_len {
+            break;
+        }
+        let len = buffer[offset] as usize;
+        let dtype = buffer[offset + 1];
+        if len < 2 || offset + len > total_len {
+            break;
+        }
+
+        match dtype {
+            0x04 => {
+                // INTERFACE
+                if let Some(iface) = current_interface.take() {
+                    config.interfaces.push(iface);
+                }
+                if len < 9 {
+                    return Err(Error::Unknown);
+                }
+                current_interface = Some(InterfaceDescriptor {
+                    interface_number: buffer[offset + 2],
+                    alternate_setting: buffer[offset + 3],
+                    class_code: buffer[offset + 5],
+                    sub_class_code: buffer[offset + 6],
+                    protocol_code: buffer[offset + 7],
+                    interface_string_index: if buffer[offset + 8] > 0 {
+                        Some(buffer[offset + 8])
+                    } else {
+                        None
+                    },
+                    endpoints: Vec::new(),
+                    extra: Vec::new(),
+                });
+            }
+            0x05 => {
+                // ENDPOINT
+                if let Some(ref mut iface) = current_interface {
+                    if len < 7 {
+                        return Err(Error::Unknown);
+                    }
+                    iface.endpoints.push(EndpointDescriptor {
+                        address: buffer[offset + 2],
+                        attributes: buffer[offset + 3],
+                        max_packet_size: (buffer[offset + 4] as u16)
+                            | ((buffer[offset + 5] as u16) << 8),
+                        interval: buffer[offset + 6],
+                        refresh: 0,
+                        synch_address: 0,
+                        extra: Vec::new(),
+                    });
+                }
+            }
+            _ => {
+                // Extra data
+            }
+        }
+        offset += len;
+    }
+    if let Some(iface) = current_interface {
+        config.interfaces.push(iface);
+    }
+
+    Ok(config)
 }
 
 pub fn detach_kernel_driver(handle: &DeviceHandle, interface: u8) -> Result<(), Error> {

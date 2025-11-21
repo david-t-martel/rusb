@@ -4,6 +4,7 @@ pub mod linux;
 pub use self::linux::{
     LinuxDevice as Device, LinuxDeviceHandle as DeviceHandle, attach_kernel_driver, bulk_transfer,
     claim_interface, clear_halt, control_transfer, detach_kernel_driver, devices,
+    get_active_configuration, get_config_descriptor_by_value, get_configuration_descriptor,
     get_device_descriptor, interrupt_transfer, open, release_interface, reset_device,
     set_interface_alt_setting,
 };
@@ -14,6 +15,7 @@ pub mod windows;
 pub use self::windows::{
     WindowsDevice as Device, WindowsDeviceHandle as DeviceHandle, attach_kernel_driver,
     bulk_transfer, claim_interface, clear_halt, control_transfer, detach_kernel_driver, devices,
+    get_active_configuration, get_config_descriptor_by_value, get_configuration_descriptor,
     get_device_descriptor, interrupt_transfer, open, release_interface, reset_device,
     set_interface_alt_setting,
 };
@@ -24,6 +26,7 @@ pub mod macos;
 pub use self::macos::{
     MacosDevice as Device, MacosDeviceHandle as DeviceHandle, attach_kernel_driver, bulk_transfer,
     claim_interface, clear_halt, control_transfer, detach_kernel_driver, devices,
+    get_active_configuration, get_config_descriptor_by_value, get_configuration_descriptor,
     get_device_descriptor, interrupt_transfer, open, release_interface, reset_device,
     set_interface_alt_setting,
 };
@@ -36,6 +39,7 @@ pub use self::wasm::init_thread_pool;
 pub use self::wasm::{
     WasmDevice as Device, WasmDeviceHandle as DeviceHandle, attach_kernel_driver, bulk_transfer,
     claim_interface, clear_halt, control_transfer, detach_kernel_driver, devices,
+    get_active_configuration, get_config_descriptor_by_value, get_configuration_descriptor,
     get_device_descriptor, interrupt_transfer, open, release_interface, reset_device,
     set_interface_alt_setting,
 };
@@ -58,6 +62,7 @@ pub mod not_supported;
 pub use self::not_supported::{
     NotSupportedDevice as Device, NotSupportedDeviceHandle as DeviceHandle, attach_kernel_driver,
     bulk_transfer, claim_interface, clear_halt, control_transfer, detach_kernel_driver, devices,
+    get_active_configuration, get_config_descriptor_by_value, get_configuration_descriptor,
     get_device_descriptor, interrupt_transfer, open, release_interface, reset_device,
     set_interface_alt_setting,
 };

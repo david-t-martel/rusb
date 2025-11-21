@@ -5,8 +5,8 @@
 //! backend is compiled so that the necessary DOM bindings are available.
 
 use crate::{
-    ControlRequest, ControlTransferData, Device, DeviceDescriptor, DeviceHandle, DeviceList, Error,
-    TransferBuffer, TransferDirection,
+    ConfigurationDescriptor, ControlRequest, ControlTransferData, Device, DeviceDescriptor,
+    DeviceHandle, DeviceList, Error, Speed, TransferBuffer, TransferDirection,
 };
 use js_sys::{Array, DataView, Uint8Array};
 use std::time::Duration;
@@ -23,6 +23,20 @@ use web_sys::{
 
 /// The WebUSB-specific device structure.
 pub struct WasmDevice(pub UsbDevice);
+
+impl WasmDevice {
+    pub fn bus_number(&self) -> u8 {
+        0
+    }
+
+    pub fn address(&self) -> u8 {
+        0
+    }
+
+    pub fn speed(&self) -> Speed {
+        Speed::Unknown
+    }
+}
 
 /// The WebUSB-specific device handle.
 pub struct WasmDeviceHandle {
@@ -338,5 +352,23 @@ pub fn detach_kernel_driver(_handle: &DeviceHandle, _interface: u8) -> Result<()
 }
 
 pub fn attach_kernel_driver(_handle: &DeviceHandle, _interface: u8) -> Result<(), Error> {
+    Err(Error::NotSupported)
+}
+
+pub fn get_active_configuration(_device: &Device) -> Result<ConfigurationDescriptor, Error> {
+    Err(Error::NotSupported)
+}
+
+pub fn get_configuration_descriptor(
+    _device: &Device,
+    _index: u8,
+) -> Result<ConfigurationDescriptor, Error> {
+    Err(Error::NotSupported)
+}
+
+pub fn get_config_descriptor_by_value(
+    _device: &Device,
+    _value: u8,
+) -> Result<ConfigurationDescriptor, Error> {
     Err(Error::NotSupported)
 }

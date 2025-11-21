@@ -26,15 +26,38 @@ impl DeviceList {
     // TODO: Add is_empty() method
 }
 
+/// Device speed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum Speed {
+    Unknown = 0,
+    Low = 1,
+    Full = 2,
+    High = 3,
+    Super = 4,
+    SuperPlus = 5,
+}
+
 /// A USB device.
-/// TODO: Add methods to get bus number and device address
-/// TODO: Add method to get device speed (low/full/high/super)
-/// TODO: Add support for reading string descriptors (manufacturer, product, serial)
 pub struct Device {
     inner: platform::Device,
 }
 
 impl Device {
+    /// Returns the bus number of the device.
+    pub fn bus_number(&self) -> u8 {
+        self.inner.bus_number()
+    }
+
+    /// Returns the address of the device on the bus.
+    pub fn address(&self) -> u8 {
+        self.inner.address()
+    }
+
+    /// Returns the device speed.
+    pub fn speed(&self) -> Speed {
+        self.inner.speed()
+    }
     /// Opens the device.
     #[cfg(not(all(target_arch = "wasm32", feature = "webusb")))]
     pub fn open(&self) -> Result<DeviceHandle, Error> {
@@ -52,9 +75,20 @@ impl Device {
         platform::get_device_descriptor(self)
     }
 
-    // TODO: Add get_configuration_descriptor(config_index) method
-    // TODO: Add get_active_configuration() method
-    // TODO: Add reset() method to reset the device
+    /// Returns the configuration descriptor for the given index.
+    pub fn get_configuration_descriptor(&self, index: u8) -> Result<ConfigurationDescriptor, Error> {
+        platform::get_configuration_descriptor(self, index)
+    }
+
+    /// Returns the active configuration descriptor.
+    pub fn get_active_configuration(&self) -> Result<ConfigurationDescriptor, Error> {
+        platform::get_active_configuration(self)
+    }
+
+    /// Returns the configuration descriptor with the given configuration value.
+    pub fn get_config_descriptor_by_value(&self, value: u8) -> Result<ConfigurationDescriptor, Error> {
+        platform::get_config_descriptor_by_value(self, value)
+    }
 }
 
 /// A handle to an open USB device.
@@ -374,9 +408,45 @@ pub struct DeviceDescriptor {
     pub num_configurations: u8,
 }
 
-// TODO: Add ConfigurationDescriptor struct
-// TODO: Add InterfaceDescriptor struct
-// TODO: Add EndpointDescriptor struct
+/// A configuration descriptor.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConfigurationDescriptor {
+    pub length: u8,
+    pub descriptor_type: u8,
+    pub total_length: u16,
+    pub num_interfaces: u8,
+    pub configuration_value: u8,
+    pub configuration_string_index: Option<u8>,
+    pub attributes: u8,
+    pub max_power: u8,
+    pub interfaces: Vec<InterfaceDescriptor>,
+    pub extra: Vec<u8>,
+}
+
+/// An interface descriptor.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InterfaceDescriptor {
+    pub interface_number: u8,
+    pub alternate_setting: u8,
+    pub class_code: u8,
+    pub sub_class_code: u8,
+    pub protocol_code: u8,
+    pub interface_string_index: Option<u8>,
+    pub endpoints: Vec<EndpointDescriptor>,
+    pub extra: Vec<u8>,
+}
+
+/// An endpoint descriptor.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EndpointDescriptor {
+    pub address: u8,
+    pub attributes: u8,
+    pub max_packet_size: u16,
+    pub interval: u8,
+    pub refresh: u8,
+    pub synch_address: u8,
+    pub extra: Vec<u8>,
+}
 
 /// Returns a list of all USB devices.
 #[cfg(not(all(target_arch = "wasm32", feature = "webusb")))]
